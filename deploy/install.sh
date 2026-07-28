@@ -66,13 +66,18 @@ case "$(uname -m)" in
 esac
 
 # --- download ----------------------------------------------------------------
+# GitHub release downloads are often unreachable from CN networks; route through
+# the gh-proxy.org mirror by default. Override with GHPROXY=<url> (empty = direct).
+GHPROXY="${GHPROXY:-https://gh-proxy.org}"
 URL="https://github.com/${REPO}/releases/latest/download/traffic-keeper-agent-linux-${ARCH}"
+[ -n "$GHPROXY" ] && URL="${GHPROXY}/${URL}"
 echo "Downloading traffic-keeper-agent (linux/${ARCH})..."
 echo "  $URL"
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 if ! curl -fsSL -o "$tmp" "$URL"; then
-	echo "error: download failed (the agent release may not exist yet)" >&2
+	echo "error: download failed" >&2
+	echo "  tip: try another mirror, e.g. GHPROXY=https://ghproxy.com bash install.sh ..." >&2
 	exit 1
 fi
 install -m 0755 "$tmp" "$BINARY"
