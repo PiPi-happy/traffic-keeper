@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -47,6 +48,7 @@ type Agent struct {
 	client *http.Client
 	state  state
 
+	mu             sync.Mutex // guards policy + the *last** timestamps
 	policy         policy
 	lastHeartbeat  time.Time
 	lastPolicyPull time.Time
@@ -62,8 +64,9 @@ func New(cfg Config) *Agent {
 	}
 }
 
-// Run registers (if needed) then loops — heartbeat, pull policy, and upload
-// per the policy — until ctx is canceled.
+// Run registers (if needed) then runs heartbeat / policy / upload each in its
+// own goroutine. A slow upload can never starve heartbeats, so the master
+// won't mark the agent offline while a big upload is in flight.
 func (a *Agent) Run(ctx context.Context) error {
 	if a.cfg.Server == "" {
 		return fmt.Errorf("server URL is required")
@@ -86,24 +89,59 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.heartbeat(ctx)
 	a.refreshPolicy(ctx)
 
+	go a.heartbeatLoop(ctx)
+	go a.policyLoop(ctx)
+	go a.uploadLoop(ctx)
+
+	<-ctx.Done()
+	return nil
+}
+
+func (a *Agent) heartbeatLoop(ctx context.Context) {
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.heartbeat(ctx)
+		}
+	}
+}
+
+func (a *Agent) policyLoop(ctx context.Context) {
+	ticker := time.NewTicker(policyPullInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.refreshPolicy(ctx)
+		}
+	}
+}
+
+func (a *Agent) uploadLoop(ctx context.Context) {
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case <-ticker.C:
-			now := time.Now()
-			if now.Sub(a.lastHeartbeat) >= heartbeatInterval {
-				a.heartbeat(ctx)
+			a.mu.Lock()
+			p := a.policy
+			last := a.lastUpload
+			a.mu.Unlock()
+			if !p.Enabled || p.IntervalSec <= 0 {
+				continue
 			}
-			if now.Sub(a.lastPolicyPull) >= policyPullInterval {
-				a.refreshPolicy(ctx)
+			if time.Since(last) < time.Duration(p.IntervalSec)*time.Second {
+				continue
 			}
-			if a.policy.Enabled && a.policy.IntervalSec > 0 &&
-				now.Sub(a.lastUpload) >= time.Duration(a.policy.IntervalSec)*time.Second {
-				a.upload(ctx)
-			}
+			a.upload(ctx)
 		}
 	}
 }
@@ -152,7 +190,9 @@ func (a *Agent) heartbeat(ctx context.Context) {
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode == http.StatusOK {
+		a.mu.Lock()
 		a.lastHeartbeat = time.Now()
+		a.mu.Unlock()
 	} else {
 		log.Printf("heartbeat: status %d", resp.StatusCode)
 	}
@@ -180,12 +220,18 @@ func (a *Agent) refreshPolicy(ctx context.Context) {
 		log.Printf("policy decode: %v", err)
 		return
 	}
+	a.mu.Lock()
 	a.policy = p
 	a.lastPolicyPull = time.Now()
+	a.mu.Unlock()
 }
 
 func (a *Agent) upload(ctx context.Context) {
-	n := int64(a.policy.SizeMB) * 1024 * 1024
+	a.mu.Lock()
+	p := a.policy
+	a.mu.Unlock()
+
+	n := int64(p.SizeMB) * 1024 * 1024
 	if n <= 0 {
 		n = 1 << 20
 	}
@@ -209,7 +255,9 @@ func (a *Agent) upload(ctx context.Context) {
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode == http.StatusOK {
+		a.mu.Lock()
 		a.lastUpload = time.Now()
+		a.mu.Unlock()
 		log.Printf("uploaded %d bytes in %s", n, time.Since(start).Round(time.Millisecond))
 	} else {
 		log.Printf("upload: status %d", resp.StatusCode)
