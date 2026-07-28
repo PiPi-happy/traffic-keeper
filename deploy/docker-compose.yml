@@ -1,0 +1,37 @@
+services:
+  master:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: traffic-keeper-master:local
+    restart: unless-stopped
+    environment:
+      MASTER_ADDR: ":8080"
+      MASTER_DB: /data/traffic-keeper.db
+      MASTER_BASE_URL: ${MASTER_BASE_URL}
+      MASTER_ADMIN_PASSWORD: ${MASTER_ADMIN_PASSWORD}
+    volumes:
+      - master-data:/data
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      MASTER_DOMAIN: ${MASTER_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - master
+
+volumes:
+  master-data:
+  caddy-data:
+  caddy-config:

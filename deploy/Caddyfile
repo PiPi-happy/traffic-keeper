@@ -1,0 +1,6 @@
+# Caddy automatically obtains and renews a Let's Encrypt certificate for
+# $MASTER_DOMAIN and reverse-proxies to the master service.
+{$MASTER_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy master:8080
+}
