@@ -1,18 +1,16 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import Login from './components/Login.vue'
 import Dashboard from './components/Dashboard.vue'
 import { setToken } from './api'
 
+// The token is restored from localStorage inside api.js at module load, so there
+// is no onMounted race: the first API call after a hard reload is authenticated.
 const token = ref(localStorage.getItem('tk_token') || '')
-onMounted(() => {
-  if (token.value) setToken(token.value)
-})
 
 function onLogin(t) {
   token.value = t
-  localStorage.setItem('tk_token', t)
-  setToken(t)
+  setToken(t) // setToken persists to localStorage + sets the axios header
 }
 </script>
 
