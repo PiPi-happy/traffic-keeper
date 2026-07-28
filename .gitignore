@@ -35,3 +35,7 @@ web/dist/
 *.db-journal
 *.db-wal
 *.db-shm
+
+# embedded frontend: track placeholder.html, ignore built bundles
+internal/web/dist/index.html
+internal/web/dist/assets/

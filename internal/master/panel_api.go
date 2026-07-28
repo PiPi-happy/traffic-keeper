@@ -59,6 +59,7 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 	out := make([]map[string]any, 0, len(agents))
 	for _, a := range agents {
 		st := stats[a.ID]
+		p, _ := s.store.GetPolicy(r.Context(), a.ID)
 		out = append(out, map[string]any{
 			"id":             a.ID,
 			"name":           a.Name,
@@ -70,6 +71,11 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 			"bytes_up":       st.BytesUp,
 			"upload_count":   st.UploadCount,
 			"last_upload_at": st.LastUploadAt,
+			"policy": map[string]any{
+				"enabled":      p.Enabled,
+				"interval_sec": p.IntervalSec,
+				"size_mb":      p.SizeMB,
+			},
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"nodes": out})

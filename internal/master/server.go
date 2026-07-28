@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/PiPi-happy/traffic-keeper/internal/master/store"
+	"github.com/PiPi-happy/traffic-keeper/internal/web"
 )
 
 // Server is the master HTTP server. It hosts both the control plane (node
@@ -52,6 +53,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/login", s.handleLogin)
 	s.mux.HandleFunc("/api/nodes", s.requireAdmin(s.handleNodes))
 	s.mux.HandleFunc("/api/nodes/", s.requireAdmin(s.handleNode)) // node-specific dispatcher
+
+	// SPA frontend (embedded). More specific routes above take precedence.
+	s.mux.Handle("/", web.Handler())
 }
 
 // ServeHTTP dispatches requests to the registered routes.
