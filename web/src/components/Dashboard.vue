@@ -1,17 +1,36 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listNodes, createNode, updatePolicy, deleteNode } from '../api'
+import {
+  listNodes, createNode, updatePolicy, deleteNode,
+  changePassword, getEvents, getInstallCommand,
+} from '../api'
 
 const nodes = ref([])
 const loading = ref(false)
 
+// new node
 const showNew = ref(false)
 const newName = ref('')
 const created = ref(null)
 
+// policy
 const showPolicy = ref(false)
 const policyForm = ref(null)
+
+// events
+const showEvents = ref(false)
+const events = ref([])
+const eventsLoading = ref(false)
+const eventsNodeName = ref('')
+
+// install command
+const showCmd = ref(false)
+const installCmd = ref('')
+
+// change password
+const showPassword = ref(false)
+const pwForm = ref({ old: '', new: '', confirm: '' })
 
 let timer = null
 
@@ -64,9 +83,7 @@ async function savePolicy() {
 
 async function remove(row) {
   try {
-    await ElMessageBox.confirm(`删除节点「${row.name}」？其累计数据将被清除。`, '确认', {
-      type: 'warning',
-    })
+    await ElMessageBox.confirm(`删除节点「${row.name}」？其累计数据将被清除。`, '确认', { type: 'warning' })
   } catch {
     return
   }
@@ -76,6 +93,47 @@ async function remove(row) {
     load()
   } catch (e) {
     ElMessage.error('删除失败')
+  }
+}
+
+async function openEvents(row) {
+  eventsNodeName.value = row.name
+  showEvents.value = true
+  eventsLoading.value = true
+  try {
+    events.value = await getEvents(row.id)
+  } catch (e) {
+    ElMessage.error('加载日志失败')
+  } finally {
+    eventsLoading.value = false
+  }
+}
+
+async function openInstallCmd(row) {
+  try {
+    installCmd.value = await getInstallCommand(row.id)
+    showCmd.value = true
+  } catch (e) {
+    ElMessage.error('获取安装命令失败')
+  }
+}
+
+async function savePassword() {
+  if (pwForm.value.new.length < 6) {
+    ElMessage.warning('新密码至少 6 位')
+    return
+  }
+  if (pwForm.value.new !== pwForm.value.confirm) {
+    ElMessage.warning('两次新密码不一致')
+    return
+  }
+  try {
+    await changePassword(pwForm.value.old, pwForm.value.new)
+    ElMessage.success('密码已修改，下次登录用新密码')
+    showPassword.value = false
+    pwForm.value = { old: '', new: '', confirm: '' }
+  } catch (e) {
+    ElMessage.error(e.response?.status === 401 ? '旧密码错误' : '修改失败')
   }
 }
 
@@ -111,7 +169,10 @@ onUnmounted(() => clearInterval(timer))
   <div class="dashboard">
     <header class="topbar">
       <span class="title">Traffic Keeper</span>
-      <el-button text @click="logout">退出</el-button>
+      <span>
+        <el-button text @click="showPassword = true">修改密码</el-button>
+        <el-button text @click="logout">退出</el-button>
+      </span>
     </header>
 
     <main class="content">
@@ -137,11 +198,7 @@ onUnmounted(() => clearInterval(timer))
           <template #default="{ row }">
             <template v-if="row.policy">
               {{ row.policy.interval_sec }}s / {{ row.policy.size_mb }}MB
-              <el-tag
-                size="small"
-                :type="row.policy.enabled ? 'success' : 'danger'"
-                style="margin-left: 4px"
-              >
+              <el-tag size="small" :type="row.policy.enabled ? 'success' : 'danger'" style="margin-left: 4px">
                 {{ row.policy.enabled ? '启用' : '暂停' }}
               </el-tag>
             </template>
@@ -150,9 +207,11 @@ onUnmounted(() => clearInterval(timer))
         <el-table-column label="最后心跳" width="180">
           <template #default="{ row }">{{ formatTime(row.last_seen_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="180">
+        <el-table-column label="操作" width="320">
           <template #default="{ row }">
             <el-button size="small" @click="openPolicy(row)">策略</el-button>
+            <el-button size="small" @click="openEvents(row)">日志</el-button>
+            <el-button size="small" @click="openInstallCmd(row)">安装命令</el-button>
             <el-button size="small" type="danger" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -168,15 +227,8 @@ onUnmounted(() => clearInterval(timer))
       </el-form>
       <div v-else>
         <p class="muted">安装命令 —— 在目标 VPS 上以 root 粘贴执行即可：</p>
-        <el-input
-          type="textarea"
-          :model-value="created.install_command"
-          :rows="3"
-          readonly
-        />
-        <el-button text type="primary" @click="copy(created.install_command)">
-          复制命令
-        </el-button>
+        <el-input type="textarea" :model-value="created.install_command" :rows="3" readonly />
+        <el-button text type="primary" @click="copy(created.install_command)">复制命令</el-button>
       </div>
       <template #footer>
         <el-button v-if="!created" type="primary" @click="create">生成命令</el-button>
@@ -202,6 +254,53 @@ onUnmounted(() => clearInterval(timer))
         <el-button @click="showPolicy = false">取消</el-button>
       </template>
     </el-dialog>
+
+    <!-- events dialog -->
+    <el-dialog v-model="showEvents" :title="`上传日志（近 3 天）· ${eventsNodeName}`" width="680">
+      <el-table :data="events" v-loading="eventsLoading" size="small" max-height="420" empty-text="近 3 天无上传记录">
+        <el-table-column label="时间" width="180">
+          <template #default="{ row }">{{ formatTime(row.ts) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.status === 'ok' ? 'success' : 'danger'">
+              {{ row.status === 'ok' ? '成功' : '失败' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="大小 / 错误">
+          <template #default="{ row }">
+            {{ row.status === 'ok' ? formatBytes(row.bytes) : (row.error || '失败') }}
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
+    <!-- install command dialog -->
+    <el-dialog v-model="showCmd" title="安装命令" width="600">
+      <p class="muted">在目标 VPS 以 root 粘贴执行（可随时在此重新查看）：</p>
+      <el-input type="textarea" :model-value="installCmd" :rows="3" readonly />
+      <el-button text type="primary" @click="copy(installCmd)">复制命令</el-button>
+    </el-dialog>
+
+    <!-- change password dialog -->
+    <el-dialog v-model="showPassword" title="修改密码" width="420">
+      <el-form label-width="100px">
+        <el-form-item label="旧密码">
+          <el-input v-model="pwForm.old" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="pwForm.new" type="password" show-password placeholder="至少 6 位" />
+        </el-form-item>
+        <el-form-item label="确认新密码">
+          <el-input v-model="pwForm.confirm" type="password" show-password />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button type="primary" @click="savePassword">保存</el-button>
+        <el-button @click="showPassword = false">取消</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -223,7 +322,7 @@ onUnmounted(() => clearInterval(timer))
   font-weight: 600;
 }
 .content {
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
 }

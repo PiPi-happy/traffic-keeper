@@ -2,10 +2,12 @@ package master
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/PiPi-happy/traffic-keeper/internal/master/store"
@@ -18,7 +20,11 @@ func newAPIServer(t *testing.T) *Server {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	return NewServer(st, WithAdminPassword("s3cret"), WithBaseURL("https://master.example.com"))
+	srv := NewServer(st, WithAdminPassword("s3cret"), WithBaseURL("https://master.example.com"))
+	if err := srv.InitAdminPassword(context.Background(), "s3cret"); err != nil {
+		t.Fatalf("init admin password: %v", err)
+	}
+	return srv
 }
 
 func doReq(t *testing.T, srv *Server, method, path, bearer string, body any) *httptest.ResponseRecorder {
@@ -160,5 +166,79 @@ func TestNodeLifecycle(t *testing.T) {
 	nodes, _ = list["nodes"].([]any)
 	if len(nodes) != 0 {
 		t.Fatalf("after delete nodes len: %d", len(nodes))
+	}
+}
+
+func TestChangePassword(t *testing.T) {
+	srv := newAPIServer(t) // initial password "s3cret"
+	tok := adminToken(t, srv)
+
+	// wrong old password -> 401
+	if rec := doReq(t, srv, http.MethodPost, "/api/password", tok, passwordReq{Old: "wrong", New: "newpass1"}); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong old: %d", rec.Code)
+	}
+	// too-short new -> 400
+	if rec := doReq(t, srv, http.MethodPost, "/api/password", tok, passwordReq{Old: "s3cret", New: "123"}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("short new: %d", rec.Code)
+	}
+	// change it
+	if rec := doReq(t, srv, http.MethodPost, "/api/password", tok, passwordReq{Old: "s3cret", New: "newpass1"}); rec.Code != http.StatusOK {
+		t.Fatalf("change: %d %s", rec.Code, rec.Body.String())
+	}
+	// old password no longer works
+	if rec := doReq(t, srv, http.MethodPost, "/api/login", "", loginReq{Password: "s3cret"}); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("old pw should fail: %d", rec.Code)
+	}
+	// new password works
+	if rec := doReq(t, srv, http.MethodPost, "/api/login", "", loginReq{Password: "newpass1"}); rec.Code != http.StatusOK {
+		t.Fatalf("new pw should work: %d", rec.Code)
+	}
+}
+
+func TestEventsAndInstallCommand(t *testing.T) {
+	srv := newAPIServer(t)
+	tok := adminToken(t, srv)
+
+	// create + register to get a usable secret
+	rec := doReq(t, srv, http.MethodPost, "/api/nodes", tok, createNodeReq{Name: "n1"})
+	var created map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	id, _ := created["id"].(string)
+	token, _ := created["token"].(string)
+	rec = doReq(t, srv, http.MethodPost, "/api/agent/register", "", map[string]string{"token": token})
+	var reg map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &reg)
+	secret := reg["secret"]
+
+	// upload twice -> two ok events
+	do(srv, http.MethodPut, "/upload/"+id, secret, bytes.Repeat([]byte("x"), 100))
+	do(srv, http.MethodPut, "/upload/"+id, secret, bytes.Repeat([]byte("x"), 200))
+
+	// GET events
+	rec = doReq(t, srv, http.MethodGet, "/api/nodes/"+id+"/events", tok, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("events: %d", rec.Code)
+	}
+	var ev map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &ev)
+	events, _ := ev["events"].([]any)
+	if len(events) != 2 {
+		t.Fatalf("events len: %d", len(events))
+	}
+	first, _ := events[0].(map[string]any)
+	if first["status"] != "ok" || first["bytes"].(float64) != 200 { // newest first
+		t.Fatalf("first event: %+v", first)
+	}
+
+	// GET install-command contains the token
+	rec = doReq(t, srv, http.MethodGet, "/api/nodes/"+id+"/install-command", tok, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("install-command: %d", rec.Code)
+	}
+	var ic map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &ic)
+	cmd, _ := ic["install_command"].(string)
+	if !strings.Contains(cmd, token) {
+		t.Fatalf("install command missing token: %s", cmd)
 	}
 }

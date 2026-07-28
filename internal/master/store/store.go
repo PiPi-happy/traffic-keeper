@@ -67,4 +67,19 @@ CREATE TABLE IF NOT EXISTS stats (
   upload_count   INTEGER NOT NULL DEFAULT 0,
   last_upload_at INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS upload_events (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  ts       INTEGER NOT NULL,
+  bytes    INTEGER NOT NULL,
+  status   TEXT NOT NULL, -- 'ok' or 'fail'
+  error    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_upload_events_agent_ts ON upload_events(agent_id, ts);
 `

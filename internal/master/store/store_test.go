@@ -85,3 +85,68 @@ func TestStoreCRUD(t *testing.T) {
 		t.Fatalf("expected stats cascade delete, got %v", err)
 	}
 }
+
+func TestSettings(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	if _, err := s.GetSetting(ctx, "k1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unset should be ErrNotFound, got %v", err)
+	}
+	if err := s.SetSetting(ctx, "k1", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := s.GetSetting(ctx, "k1"); v != "v1" {
+		t.Fatalf("got %q", v)
+	}
+	if err := s.SetSetting(ctx, "k1", "v2"); err != nil { // upsert
+		t.Fatal(err)
+	}
+	if v, _ := s.GetSetting(ctx, "k1"); v != "v2" {
+		t.Fatalf("upsert got %q", v)
+	}
+}
+
+func TestEvents(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.CreateAgent(ctx, Agent{ID: "a1", Name: "n", Token: "t", Secret: "x"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.InsertEvent(ctx, Event{AgentID: "a1", Bytes: 100, Status: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertEvent(ctx, Event{AgentID: "a1", Bytes: 0, Status: "fail", Error: "read err"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ListEvents(ctx, "a1", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len=%d", len(got))
+	}
+	if got[0].Status != "fail" { // newest first
+		t.Fatalf("order: %+v", got)
+	}
+
+	// delete-old + cascade-on-agent-delete
+	if n, _ := s.DeleteEventsBefore(ctx, got[0].Ts+1); n != 2 {
+		t.Fatalf("deleted %d", n)
+	}
+	s.InsertEvent(ctx, Event{AgentID: "a1", Bytes: 1, Status: "ok"})
+	s.DeleteAgent(ctx, "a1")
+	if got, _ := s.ListEvents(ctx, "a1", 0, 100); len(got) != 0 {
+		t.Fatalf("cascade delete failed: %d", len(got))
+	}
+}

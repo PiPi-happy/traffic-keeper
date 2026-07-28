@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/PiPi-happy/traffic-keeper/internal/master/store"
 )
@@ -25,11 +26,47 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if s.adminPassword == "" || req.Password != s.adminPassword {
+	if !s.verifyAdmin(r.Context(), req.Password) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"token": s.sessions.create()})
+}
+
+type passwordReq struct {
+	Old string `json:"old"`
+	New string `json:"new"`
+}
+
+// handleChangePassword verifies the old password then stores a new bcrypt hash.
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req passwordReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if !s.verifyAdmin(r.Context(), req.Old) {
+		http.Error(w, "old password incorrect", http.StatusUnauthorized)
+		return
+	}
+	if len(req.New) < 6 {
+		http.Error(w, "new password must be at least 6 characters", http.StatusBadRequest)
+		return
+	}
+	hash, err := hashPassword(req.New)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.SetSetting(r.Context(), settingAdminPassword, hash); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 type createNodeReq struct {
@@ -110,12 +147,16 @@ func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleNode dispatches node-specific routes under /api/nodes/{id}[/policy].
+// handleNode dispatches node-specific routes under /api/nodes/{id}[/suffix].
 func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 	p := strings.TrimPrefix(r.URL.Path, "/api/nodes/")
 	switch {
 	case strings.HasSuffix(p, "/policy"):
 		s.handleNodePolicy(w, r)
+	case strings.HasSuffix(p, "/events"):
+		s.handleNodeEvents(w, r)
+	case strings.HasSuffix(p, "/install-command"):
+		s.handleNodeInstallCmd(w, r)
 	case p != "" && !strings.Contains(p, "/"):
 		s.handleNodeDelete(w, r)
 	default:
@@ -175,6 +216,54 @@ func (s *Server) handleNodePolicy(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleNodeEvents returns upload events for the last 3 days, newest first.
+func (s *Server) handleNodeEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/nodes/"), "/events")
+	if id == "" || strings.Contains(id, "/") {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	since := time.Now().Unix() - 3*24*3600
+	events, err := s.store.ListEvents(r.Context(), id, since, 1000)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	out := make([]map[string]any, 0, len(events))
+	for _, e := range events {
+		out = append(out, map[string]any{
+			"ts":     e.Ts,
+			"bytes":  e.Bytes,
+			"status": e.Status,
+			"error":  e.Error,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": out})
+}
+
+// handleNodeInstallCmd regenerates the install command for an existing node.
+func (s *Server) handleNodeInstallCmd(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/nodes/"), "/install-command")
+	if id == "" || strings.Contains(id, "/") {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	agent, err := s.store.GetAgent(r.Context(), id)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"install_command": s.installCommand(agent.Token)})
+}
+
 func (s *Server) handleNodeDelete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -192,7 +281,7 @@ func (s *Server) handleNodeDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// installCommand renders the one-liner the panel shows for a new node.
+// installCommand renders the one-liner the panel shows for a node.
 func (s *Server) installCommand(token string) string {
 	server := s.baseURL
 	if server == "" {

@@ -1,7 +1,9 @@
 package master
 
 import (
+	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -14,23 +16,23 @@ import (
 // management, policy dispatch, single-user auth) and the data plane (upload
 // receiver that counts bytes and discards bodies).
 type Server struct {
-	store         *store.Store
-	mux           *http.ServeMux
-	adminPassword string
-	sessions      *sessionStore
-	baseURL       string // public base URL used to render install commands
+	store       *store.Store
+	mux         *http.ServeMux
+	envPassword string // initial password seed from MASTER_ADMIN_PASSWORD
+	sessions    *sessionStore
+	baseURL     string // public base URL used to render install commands
 }
 
 // Option configures a Server.
 type Option func(*Server)
 
-// WithAdminPassword sets the single-user admin password for panel login.
+// WithAdminPassword sets the initial admin password (used only on first run to
+// seed the DB; afterwards the password is managed in the panel).
 func WithAdminPassword(p string) Option {
-	return func(s *Server) { s.adminPassword = p }
+	return func(s *Server) { s.envPassword = p }
 }
 
-// WithBaseURL sets the public base URL (e.g. https://master.example.com) used
-// when generating agent install commands.
+// WithBaseURL sets the public base URL used when generating agent install commands.
 func WithBaseURL(u string) Option {
 	return func(s *Server) { s.baseURL = strings.TrimRight(u, "/") }
 }
@@ -42,6 +44,7 @@ func NewServer(s *store.Store, opts ...Option) *Server {
 		o(srv)
 	}
 	srv.routes()
+	srv.startCleaners()
 	return srv
 }
 
@@ -51,6 +54,7 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("/api/agent/", s.handleAgent)              // agent-facing dispatcher
 	s.mux.HandleFunc("/api/login", s.handleLogin)
+	s.mux.HandleFunc("/api/password", s.requireAdmin(s.handleChangePassword))
 	s.mux.HandleFunc("/api/nodes", s.requireAdmin(s.handleNodes))
 	s.mux.HandleFunc("/api/nodes/", s.requireAdmin(s.handleNode)) // node-specific dispatcher
 
@@ -94,4 +98,31 @@ func isOnline(lastSeen int64) bool {
 		return false
 	}
 	return time.Now().Unix()-lastSeen <= 90
+}
+
+// --- background cleaners ---
+
+const eventRetention = 3 * 24 * time.Hour
+
+func (s *Server) startCleaners() {
+	go s.cleanUploadEvents()
+}
+
+func (s *Server) cleanUploadEvents() {
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+	s.purgeOldEvents()
+	for range ticker.C {
+		s.purgeOldEvents()
+	}
+}
+
+func (s *Server) purgeOldEvents() {
+	cutoff := time.Now().Add(-eventRetention).Unix()
+	n, err := s.store.DeleteEventsBefore(context.Background(), cutoff)
+	if err != nil {
+		log.Printf("purge upload events: %v", err)
+	} else if n > 0 {
+		log.Printf("purged %d old upload events", n)
+	}
 }

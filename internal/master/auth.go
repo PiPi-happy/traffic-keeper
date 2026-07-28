@@ -1,17 +1,24 @@
 package master
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/PiPi-happy/traffic-keeper/internal/master/store"
+	"golang.org/x/crypto/bcrypt"
 )
 
-const sessionTTL = 24 * time.Hour
+const (
+	sessionTTL           = 24 * time.Hour
+	settingAdminPassword = "admin_password_hash"
+)
 
 func randomHex(n int) string {
 	b := make([]byte, n)
@@ -91,4 +98,50 @@ func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+// --- admin password (bcrypt, persisted in settings) ---
+
+func hashPassword(pw string) (string, error) {
+	b, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
+	return string(b), err
+}
+
+func verifyPassword(hash, pw string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(pw)) == nil
+}
+
+// InitAdminPassword seeds the admin password hash from envPassword on first run.
+// Once seeded, the password is managed in the DB (panel can change it); the env
+// var is only an initial value.
+func (s *Server) InitAdminPassword(ctx context.Context, envPassword string) error {
+	if _, err := s.store.GetSetting(ctx, settingAdminPassword); err == nil {
+		return nil // already configured
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	pw := envPassword
+	if pw == "" {
+		pw = randomHex(12) // generate a random one and log it once
+	}
+	h, err := hashPassword(pw)
+	if err != nil {
+		return err
+	}
+	if err := s.store.SetSetting(ctx, settingAdminPassword, h); err != nil {
+		return err
+	}
+	if envPassword == "" {
+		log.Printf("no MASTER_ADMIN_PASSWORD set; generated initial admin password: %s", pw)
+	}
+	return nil
+}
+
+// verifyAdmin checks the password against the stored bcrypt hash.
+func (s *Server) verifyAdmin(ctx context.Context, pw string) bool {
+	h, err := s.store.GetSetting(ctx, settingAdminPassword)
+	if err != nil {
+		return false
+	}
+	return verifyPassword(h, pw)
 }

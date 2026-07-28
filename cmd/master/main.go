@@ -38,6 +38,9 @@ func main() {
 		master.WithBaseURL(envOr("MASTER_BASE_URL", "")),
 		master.WithAdminPassword(envOr("MASTER_ADMIN_PASSWORD", "")),
 	)
+	if err := srv.InitAdminPassword(context.Background(), envOr("MASTER_ADMIN_PASSWORD", "")); err != nil {
+		log.Fatalf("init admin password: %v", err)
+	}
 	httpSrv := &http.Server{Addr: addr, Handler: srv}
 
 	go func() {
