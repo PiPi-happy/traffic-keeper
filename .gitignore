@@ -39,3 +39,8 @@ web/dist/
 # embedded frontend: track placeholder.html, ignore built bundles
 internal/web/dist/index.html
 internal/web/dist/assets/
+
+# Local-only notes — NEVER commit (may contain secrets/credentials)
+索引.md
+*.local.md
+*.secret.md
