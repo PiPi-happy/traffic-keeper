@@ -1,0 +1,16 @@
+name: release
+
+# Skeleton placeholder. The full multi-arch build matrix
+# (linux/amd64 + linux/arm64, CGO_ENABLED=0 static binaries for both
+# master and agent, uploaded to GitHub Releases) lands in a later task.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "release workflow placeholder — implemented in a later task"
