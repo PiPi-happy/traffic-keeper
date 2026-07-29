@@ -56,3 +56,16 @@ export async function getInstallCommand(id) {
   const { data } = await api.get(`/api/nodes/${id}/install-command`)
   return data.install_command
 }
+
+export async function getTunnel() {
+  const { data } = await api.get('/api/tunnel')
+  return data
+}
+
+export async function enableTunnel() {
+  await api.post('/api/tunnel')
+}
+
+export async function disableTunnel() {
+  await api.post('/api/tunnel/disable')
+}

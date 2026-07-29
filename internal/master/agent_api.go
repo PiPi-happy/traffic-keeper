@@ -95,5 +95,6 @@ func (s *Server) handleAgentPolicy(w http.ResponseWriter, r *http.Request) {
 		"enabled":      p.Enabled,
 		"interval_sec": p.IntervalSec,
 		"size_mb":      p.SizeMB,
+		"upload_url":   s.tunnel.UploadURL(), // when tunnel is up, agents upload through it
 	})
 }

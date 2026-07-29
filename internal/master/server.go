@@ -21,6 +21,7 @@ type Server struct {
 	envPassword string // initial password seed from MASTER_ADMIN_PASSWORD
 	sessions    *sessionStore
 	baseURL     string // public base URL used to render install commands
+	tunnel      *TunnelManager
 }
 
 // Option configures a Server.
@@ -39,7 +40,7 @@ func WithBaseURL(u string) Option {
 
 // NewServer creates a master server backed by the given store.
 func NewServer(s *store.Store, opts ...Option) *Server {
-	srv := &Server{store: s, mux: http.NewServeMux(), sessions: newSessionStore()}
+	srv := &Server{store: s, mux: http.NewServeMux(), sessions: newSessionStore(), tunnel: newTunnelManager()}
 	for _, o := range opts {
 		o(srv)
 	}
@@ -57,6 +58,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/password", s.requireAdmin(s.handleChangePassword))
 	s.mux.HandleFunc("/api/nodes", s.requireAdmin(s.handleNodes))
 	s.mux.HandleFunc("/api/nodes/", s.requireAdmin(s.handleNode)) // node-specific dispatcher
+	s.mux.HandleFunc("/api/tunnel", s.requireAdmin(s.handleTunnel))
+	s.mux.HandleFunc("/api/tunnel/disable", s.requireAdmin(s.handleTunnelDisable))
 
 	// SPA frontend (embedded). More specific routes above take precedence.
 	s.mux.Handle("/", web.Handler())

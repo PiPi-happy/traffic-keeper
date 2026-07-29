@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -31,9 +32,10 @@ type Config struct {
 
 // policy mirrors the master policy the agent pulls.
 type policy struct {
-	Enabled     bool `json:"enabled"`
-	IntervalSec int  `json:"interval_sec"`
-	SizeMB      int  `json:"size_mb"`
+	Enabled     bool   `json:"enabled"`
+	IntervalSec int    `json:"interval_sec"`
+	SizeMB      int    `json:"size_mb"`
+	UploadURL   string `json:"upload_url"` // when set, uploads go through this base (e.g. the CF tunnel)
 }
 
 // state is the persisted credential pair.
@@ -231,13 +233,23 @@ func (a *Agent) upload(ctx context.Context) {
 	p := a.policy
 	a.mu.Unlock()
 
+	// Data plane goes through the tunnel URL when the master provides one;
+	// otherwise fall back to the configured server. The control plane
+	// (register/heartbeat/policy) always uses cfg.Server so the agent can still
+	// reach the master before any tunnel exists.
+	base := p.UploadURL
+	if base == "" {
+		base = a.cfg.Server
+	}
+
 	n := int64(p.SizeMB) * 1024 * 1024
 	if n <= 0 {
 		n = 1 << 20
 	}
 	// Stream incompressible random data straight from /dev/urandom; never hold
 	// the whole payload in memory.
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, a.cfg.Server+"/upload/"+a.state.AgentID, io.LimitReader(rand.Reader, n))
+	url := strings.TrimRight(base, "/") + "/upload/" + a.state.AgentID
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, io.LimitReader(rand.Reader, n))
 	if err != nil {
 		log.Printf("upload: %v", err)
 		return

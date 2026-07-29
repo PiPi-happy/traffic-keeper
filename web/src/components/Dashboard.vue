@@ -1,9 +1,10 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   listNodes, createNode, updatePolicy, deleteNode,
   changePassword, getEvents, getInstallCommand,
+  getTunnel, enableTunnel, disableTunnel,
 } from '../api'
 
 const nodes = ref([])
@@ -31,6 +32,12 @@ const installCmd = ref('')
 // change password
 const showPassword = ref(false)
 const pwForm = ref({ old: '', new: '', confirm: '' })
+
+// tunnel
+const showTunnel = ref(false)
+const tunnel = ref({ enabled: false, url: '', installed: false, logs: [] })
+const logBox = ref(null)
+let tunnelTimer = null
 
 let timer = null
 
@@ -137,7 +144,35 @@ async function savePassword() {
   }
 }
 
-function copy(text) {
+async function loadTunnel() {
+  try {
+    tunnel.value = await getTunnel()
+    await nextTick()
+    if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight
+  } catch (e) { /* ignore */ }
+}
+function openTunnel() {
+  showTunnel.value = true
+  loadTunnel()
+  tunnelTimer = setInterval(loadTunnel, 1000)
+}
+function closeTunnel() {
+  showTunnel.value = false
+  if (tunnelTimer) { clearInterval(tunnelTimer); tunnelTimer = null }
+}
+async function toggleTunnel() {
+  try {
+    if (tunnel.value.enabled) {
+      await disableTunnel()
+    } else {
+      await enableTunnel()
+    }
+    loadTunnel()
+  } catch (e) {
+    ElMessage.error('操作失败')
+  }
+}
+function copyText(text) {
   navigator.clipboard.writeText(text)
   ElMessage.success('已复制到剪贴板')
 }
@@ -162,7 +197,10 @@ onMounted(() => {
   load()
   timer = setInterval(load, 15000)
 })
-onUnmounted(() => clearInterval(timer))
+onUnmounted(() => {
+  clearInterval(timer)
+  if (tunnelTimer) clearInterval(tunnelTimer)
+})
 </script>
 
 <template>
@@ -170,6 +208,7 @@ onUnmounted(() => clearInterval(timer))
     <header class="topbar">
       <span class="title">Traffic Keeper</span>
       <span>
+        <el-button text @click="openTunnel">Cloudflare Tunnel</el-button>
         <el-button text @click="showPassword = true">修改密码</el-button>
         <el-button text @click="logout">退出</el-button>
       </span>
@@ -228,7 +267,7 @@ onUnmounted(() => clearInterval(timer))
       <div v-else>
         <p class="muted">安装命令 —— 在目标 VPS 上以 root 粘贴执行即可：</p>
         <el-input type="textarea" :model-value="created.install_command" :rows="3" readonly />
-        <el-button text type="primary" @click="copy(created.install_command)">复制命令</el-button>
+        <el-button text type="primary" @click="copyText(created.install_command)">复制命令</el-button>
       </div>
       <template #footer>
         <el-button v-if="!created" type="primary" @click="create">生成命令</el-button>
@@ -280,7 +319,7 @@ onUnmounted(() => clearInterval(timer))
     <el-dialog v-model="showCmd" title="安装命令" width="600">
       <p class="muted">在目标 VPS 以 root 粘贴执行（可随时在此重新查看）：</p>
       <el-input type="textarea" :model-value="installCmd" :rows="3" readonly />
-      <el-button text type="primary" @click="copy(installCmd)">复制命令</el-button>
+      <el-button text type="primary" @click="copyText(installCmd)">复制命令</el-button>
     </el-dialog>
 
     <!-- change password dialog -->
@@ -300,6 +339,41 @@ onUnmounted(() => clearInterval(timer))
         <el-button type="primary" @click="savePassword">保存</el-button>
         <el-button @click="showPassword = false">取消</el-button>
       </template>
+    </el-dialog>
+
+    <!-- cloudflare tunnel dialog -->
+    <el-dialog v-model="showTunnel" title="Cloudflare Tunnel" width="680" @close="closeTunnel">
+      <div class="tunnel-row">
+        <span>状态：</span>
+        <el-tag :type="tunnel.enabled ? 'success' : 'info'" size="small">
+          {{ tunnel.enabled ? '已启用' : '未启用' }}
+        </el-tag>
+        <span class="muted" style="margin-left:8px">{{ tunnel.installed ? 'cloudflared 已安装' : 'cloudflared 未安装' }}</span>
+        <el-button
+          size="small"
+          :type="tunnel.enabled ? 'danger' : 'primary'"
+          style="margin-left:auto"
+          @click="toggleTunnel"
+        >
+          {{ tunnel.enabled ? '关闭 Tunnel' : '启用 Tunnel' }}
+        </el-button>
+      </div>
+      <div v-if="tunnel.url" class="tunnel-url">
+        Tunnel 地址：<a :href="tunnel.url" target="_blank">{{ tunnel.url }}</a>
+        <el-button text type="primary" size="small" @click="copyText(tunnel.url)">复制</el-button>
+      </div>
+      <div v-else-if="tunnel.enabled" class="muted" style="margin-top:8px">
+        正在等待分配 trycloudflare 地址……
+      </div>
+      <p class="muted" style="margin-top:12px">安装 / 连接日志：</p>
+      <div ref="logBox" class="tunnel-log">
+        <div v-for="(l, i) in tunnel.logs" :key="i" class="log-line">{{ l }}</div>
+        <div v-if="!tunnel.logs.length" class="muted">（暂无日志，点「启用 Tunnel」开始）</div>
+      </div>
+      <p class="muted" style="margin-top:8px;font-size:12px">
+        启用后 master 自动安装 cloudflared 并建立 quick tunnel；agent 的上传会自动改走此 tunnel（加密，避开国际链路 RST），
+        控制面（心跳/策略）仍走直连。关闭弹窗即停止刷新日志。
+      </p>
     </el-dialog>
   </div>
 </template>
@@ -333,6 +407,35 @@ onUnmounted(() => clearInterval(timer))
 }
 .muted {
   color: #909399;
-  margin: 0 0 8px;
+}
+.tunnel-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tunnel-url {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: #f0f9eb;
+  border-radius: 4px;
+  word-break: break-all;
+}
+.tunnel-url a {
+  color: #409eff;
+}
+.tunnel-log {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px;
+  border-radius: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 </style>
