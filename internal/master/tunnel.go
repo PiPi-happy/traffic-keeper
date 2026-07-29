@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os/exec"
 	"regexp"
@@ -191,6 +192,7 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, s.tunnel.Status())
 	case http.MethodPost:
+		_ = s.store.SetSetting(r.Context(), settingTunnelEnabled, "1") // persist intent (not URL)
 		s.tunnel.ResetLogs()
 		go s.tunnel.Enable(context.Background())
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -206,5 +208,17 @@ func (s *Server) handleTunnelDisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.tunnel.Disable()
+	_ = s.store.SetSetting(r.Context(), settingTunnelEnabled, "0")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// RestoreTunnelIntent re-enables the tunnel on boot if the user last left it on.
+// Call after the HTTP listener is up so cloudflared's upstream is reachable.
+func (s *Server) RestoreTunnelIntent(ctx context.Context) {
+	v, err := s.store.GetSetting(ctx, settingTunnelEnabled)
+	if err != nil || v != "1" {
+		return
+	}
+	log.Printf("tunnel: restoring (intent=enabled), launching cloudflared...")
+	go s.tunnel.Enable(ctx)
 }

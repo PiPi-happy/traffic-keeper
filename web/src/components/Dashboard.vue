@@ -2,8 +2,8 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Setting, Document, Download, Upload, Delete, Plus, Refresh, Lock, Cloudy, SwitchButton,
-} from '@element-plus/icons-vue'
+  Settings, FileText, Download, Upload, Trash2, Plus, RefreshCw, Lock, Cloud, LogOut,
+} from 'lucide-vue-next'
 import VChart from 'vue-echarts'
 import 'echarts'
 import {
@@ -47,6 +47,15 @@ let tunnelTimer = null
 
 let timer = null
 
+// KPI aggregation
+const kpis = computed(() => {
+  const list = nodes.value
+  const online = list.filter((n) => n.online).length
+  const bytesUp = list.reduce((s, n) => s + (n.bytes_up || 0), 0)
+  const uploads = list.reduce((s, n) => s + (n.upload_count || 0), 0)
+  return { total: list.length, online, bytesUp, uploads }
+})
+
 function isOutdated(row) {
   return !!(row.version && latestVersion.value && row.version !== latestVersion.value)
 }
@@ -80,6 +89,7 @@ async function create() {
 
 function openPolicy(row) {
   const p = row.policy || {}
+  const isRandom = p.size_max_mb > p.size_min_mb
   policyForm.value = {
     id: row.id,
     enabled: p.enabled !== false,
@@ -87,23 +97,26 @@ function openPolicy(row) {
     size_mb: p.size_mb || 50,
     size_min_mb: p.size_min_mb || 0,
     size_max_mb: p.size_max_mb || 0,
+    trafficType: isRandom ? 'random' : 'fixed',
   }
   showPolicy.value = true
 }
 
 async function savePolicy() {
   const f = policyForm.value
-  if (f.size_max_mb > 0 && f.size_max_mb < f.size_min_mb) {
-    ElMessage.warning('随机区间 max 必须 ≥ min')
-    return
+  if (f.trafficType === 'random') {
+    if (!(f.size_max_mb > f.size_min_mb)) {
+      ElMessage.warning('随机区间需 max > min')
+      return
+    }
   }
   try {
     await updatePolicy(f.id, {
       enabled: f.enabled,
       interval_sec: f.interval_sec,
       size_mb: f.size_mb,
-      size_min_mb: f.size_min_mb,
-      size_max_mb: f.size_max_mb,
+      size_min_mb: f.trafficType === 'fixed' ? 0 : f.size_min_mb,
+      size_max_mb: f.trafficType === 'fixed' ? 0 : f.size_max_mb,
     })
     showPolicy.value = false
     ElMessage.success('已保存')
@@ -141,7 +154,6 @@ async function openEvents(row) {
   }
 }
 
-// 24h hourly aggregation for the chart
 const chartOption = computed(() => {
   const now = Math.floor(Date.now() / 1000)
   const bytes = Array(24).fill(0)
@@ -160,17 +172,33 @@ const chartOption = computed(() => {
   return {
     tooltip: {
       trigger: 'axis',
+      backgroundColor: 'rgba(15,23,42,0.92)',
+      borderWidth: 0,
+      textStyle: { color: '#e2e8f0', fontSize: 12 },
+      padding: [8, 12],
       formatter: (p) => {
         const i = p[0].dataIndex
         return `${xLabels[i]}<br/>上行：${formatBytes(bytes[i])}<br/>成功 ${okCnt[i]} / 失败 ${failCnt[i]}`
       },
     },
     grid: { left: 56, right: 16, top: 16, bottom: 28 },
-    xAxis: { type: 'category', data: xLabels, axisLabel: { fontSize: 10 } },
-    yAxis: { type: 'value', axisLabel: { formatter: (v) => formatBytes(v), fontSize: 10 } },
+    xAxis: {
+      type: 'category', data: xLabels,
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+      axisTick: { show: false },
+      axisLabel: { fontSize: 10, color: '#6b7280' },
+    },
+    yAxis: {
+      type: 'value',
+      splitLine: { lineStyle: { color: '#f1f5f9' } },
+      axisLabel: { fontSize: 10, color: '#6b7280', formatter: (v) => formatBytes(v) },
+    },
     series: [{
       type: 'line', smooth: true, data: bytes,
-      areaStyle: { opacity: 0.2 }, lineStyle: { width: 2 }, itemStyle: { color: '#409eff' },
+      symbol: 'circle', symbolSize: 4,
+      areaStyle: { opacity: 0.15 },
+      lineStyle: { width: 2, color: '#2563eb' },
+      itemStyle: { color: '#2563eb' },
     }],
   }
 })
@@ -283,87 +311,131 @@ onUnmounted(() => {
 
 <template>
   <div class="dashboard">
-    <header class="topbar">
-      <span class="title">Traffic Keeper</span>
-      <span class="actions">
-        <el-tooltip content="Cloudflare Tunnel" placement="bottom">
-          <el-button text :class="{ active: tunnel.enabled }" @click="openTunnel"><el-icon><Cloudy /></el-icon></el-button>
-        </el-tooltip>
-        <el-tooltip content="修改密码" placement="bottom">
-          <el-button text @click="showPassword = true"><el-icon><Lock /></el-icon></el-button>
-        </el-tooltip>
-        <el-tooltip content="退出" placement="bottom">
-          <el-button text @click="logout"><el-icon><SwitchButton /></el-icon></el-button>
-        </el-tooltip>
-      </span>
-    </header>
-
-    <main class="content">
-      <div class="toolbar">
-        <el-button type="primary" @click="showNew = true"><el-icon><Plus /></el-icon><span>新建节点</span></el-button>
-        <el-button :loading="loading" @click="load"><el-icon><Refresh /></el-icon><span>刷新</span></el-button>
+    <!-- sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">T</div>
+        <span class="brand-name">Traffic Keeper</span>
+      </div>
+      <nav class="nav">
+        <div class="nav-item active"><FileText :size="16" :stroke-width="1.5" /><span>节点</span></div>
+      </nav>
+      <div class="sidebar-foot">
         <span v-if="latestVersion" class="muted small">最新版本 {{ latestVersion }}</span>
       </div>
+    </aside>
 
-      <el-table :data="nodes" v-loading="loading" stripe>
-        <el-table-column prop="name" label="名称" min-width="120" />
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="row.online ? 'success' : 'info'" size="small">
-              {{ row.online ? '在线' : '离线' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="版本" width="100">
-          <template #default="{ row }">
-            <el-tooltip v-if="isOutdated(row)" :content="`过时，最新 ${latestVersion}`" placement="top">
-              <span class="outdated">{{ row.version || '—' }}</span>
-            </el-tooltip>
-            <span v-else>{{ row.version || '—' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="累计上行" min-width="110">
-          <template #default="{ row }">{{ formatBytes(row.bytes_up) }}</template>
-        </el-table-column>
-        <el-table-column prop="upload_count" label="次数" width="80" />
-        <el-table-column label="策略" min-width="190">
-          <template #default="{ row }">
-            <template v-if="row.policy">
-              {{ row.policy.interval_sec }}s /
-              <template v-if="row.policy.size_max_mb > row.policy.size_min_mb">
-                {{ row.policy.size_min_mb }}~{{ row.policy.size_max_mb }}MB(随机)
+    <!-- main -->
+    <div class="main">
+      <header class="topbar">
+        <div class="topbar-title">节点管理</div>
+        <div class="topbar-actions">
+          <el-button type="primary" @click="showNew = true">
+            <Plus :size="15" :stroke-width="1.5" /><span>新建节点</span>
+          </el-button>
+          <el-button :loading="loading" @click="load">
+            <RefreshCw :size="15" :stroke-width="1.5" /><span>刷新</span>
+          </el-button>
+          <el-tooltip content="Cloudflare Tunnel" placement="bottom">
+            <el-button text :class="{ 'tunnel-on': tunnel.enabled }" @click="openTunnel">
+              <Cloud :size="16" :stroke-width="1.5" />
+            </el-button>
+          </el-tooltip>
+          <el-tooltip content="修改密码" placement="bottom">
+            <el-button text @click="showPassword = true"><Lock :size="16" :stroke-width="1.5" /></el-button>
+          </el-tooltip>
+          <el-tooltip content="退出" placement="bottom">
+            <el-button text @click="logout"><LogOut :size="16" :stroke-width="1.5" /></el-button>
+          </el-tooltip>
+        </div>
+      </header>
+
+      <main class="content">
+        <!-- KPI row -->
+        <div class="kpi-row">
+          <div class="kpi-card">
+            <div class="kpi-label">在线节点</div>
+            <div class="kpi-value">{{ kpis.online }}<span class="kpi-sub"> / {{ kpis.total }}</span></div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">累计上行</div>
+            <div class="kpi-value">{{ formatBytes(kpis.bytesUp) }}</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">上传次数</div>
+            <div class="kpi-value">{{ kpis.uploads }}</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">最新版本</div>
+            <div class="kpi-value sm">{{ latestVersion || '—' }}</div>
+          </div>
+        </div>
+
+        <!-- table card -->
+        <div class="table-card">
+          <el-table :data="nodes" v-loading="loading" stripe>
+            <el-table-column prop="name" label="名称" min-width="120" />
+            <el-table-column label="状态" width="90">
+              <template #default="{ row }">
+                <el-tag :type="row.online ? 'success' : 'info'" size="small">
+                  {{ row.online ? '在线' : '离线' }}
+                </el-tag>
               </template>
-              <template v-else>{{ row.policy.size_mb }}MB</template>
-              <el-tag size="small" :type="row.policy.enabled ? 'success' : 'danger'" style="margin-left:4px">
-                {{ row.policy.enabled ? '启用' : '暂停' }}
-              </el-tag>
-            </template>
-          </template>
-        </el-table-column>
-        <el-table-column label="最后心跳" width="170">
-          <template #default="{ row }">{{ formatTime(row.last_seen_at) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="240">
-          <template #default="{ row }">
-            <el-tooltip content="策略" placement="top">
-              <el-button size="small" circle @click="openPolicy(row)"><el-icon><Setting /></el-icon></el-button>
-            </el-tooltip>
-            <el-tooltip content="日志(24h曲线)" placement="top">
-              <el-button size="small" circle @click="openEvents(row)"><el-icon><Document /></el-icon></el-button>
-            </el-tooltip>
-            <el-tooltip content="安装命令" placement="top">
-              <el-button size="small" circle @click="openInstallCmd(row)"><el-icon><Download /></el-icon></el-button>
-            </el-tooltip>
-            <el-tooltip :content="row.pending_upgrade ? '升级中…' : (isOutdated(row) ? `升级到 ${latestVersion}` : '升级')" placement="top">
-              <el-button size="small" circle :type="isOutdated(row) ? 'warning' : ''" :loading="!!row.pending_upgrade" @click="upgrade(row)"><el-icon><Upload /></el-icon></el-button>
-            </el-tooltip>
-            <el-tooltip content="删除" placement="top">
-              <el-button size="small" circle type="danger" @click="remove(row)"><el-icon><Delete /></el-icon></el-button>
-            </el-tooltip>
-          </template>
-        </el-table-column>
-      </el-table>
-    </main>
+            </el-table-column>
+            <el-table-column label="版本" width="100">
+              <template #default="{ row }">
+                <el-tooltip v-if="isOutdated(row)" :content="`过时，最新 ${latestVersion}`" placement="top">
+                  <span class="outdated">{{ row.version || '—' }}</span>
+                </el-tooltip>
+                <span v-else>{{ row.version || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="累计上行" min-width="110">
+              <template #default="{ row }">{{ formatBytes(row.bytes_up) }}</template>
+            </el-table-column>
+            <el-table-column prop="upload_count" label="次数" width="80" />
+            <el-table-column label="策略" min-width="190">
+              <template #default="{ row }">
+                <template v-if="row.policy">
+                  {{ row.policy.interval_sec }}s /
+                  <template v-if="row.policy.size_max_mb > row.policy.size_min_mb">
+                    {{ row.policy.size_min_mb }}~{{ row.policy.size_max_mb }}MB(随机)
+                  </template>
+                  <template v-else>{{ row.policy.size_mb }}MB</template>
+                  <el-tag size="small" :type="row.policy.enabled ? 'success' : 'danger'" style="margin-left:4px">
+                    {{ row.policy.enabled ? '启用' : '暂停' }}
+                  </el-tag>
+                </template>
+              </template>
+            </el-table-column>
+            <el-table-column label="最后心跳" width="170">
+              <template #default="{ row }">{{ formatTime(row.last_seen_at) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="230">
+              <template #default="{ row }">
+                <el-tooltip content="策略" placement="top">
+                  <el-button size="small" circle @click="openPolicy(row)"><Settings :size="15" :stroke-width="1.5" /></el-button>
+                </el-tooltip>
+                <el-tooltip content="日志(24h曲线)" placement="top">
+                  <el-button size="small" circle @click="openEvents(row)"><FileText :size="15" :stroke-width="1.5" /></el-button>
+                </el-tooltip>
+                <el-tooltip content="安装命令" placement="top">
+                  <el-button size="small" circle @click="openInstallCmd(row)"><Download :size="15" :stroke-width="1.5" /></el-button>
+                </el-tooltip>
+                <el-tooltip :content="row.pending_upgrade ? '升级中…' : (isOutdated(row) ? `升级到 ${latestVersion}` : '升级')" placement="top">
+                  <el-button size="small" circle :type="isOutdated(row) ? 'warning' : ''" :loading="!!row.pending_upgrade" @click="upgrade(row)">
+                    <Upload :size="15" :stroke-width="1.5" />
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip content="删除" placement="top">
+                  <el-button size="small" circle type="danger" @click="remove(row)"><Trash2 :size="15" :stroke-width="1.5" /></el-button>
+                </el-tooltip>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </main>
+    </div>
 
     <!-- new node -->
     <el-dialog v-model="showNew" title="新建节点" width="600" @close="created = null">
@@ -385,21 +457,27 @@ onUnmounted(() => {
 
     <!-- policy -->
     <el-dialog v-model="showPolicy" title="编辑策略" width="480">
-      <el-form v-if="policyForm" label-width="100px">
+      <el-form v-if="policyForm" label-width="96px">
         <el-form-item label="启用上传">
           <el-switch v-model="policyForm.enabled" />
         </el-form-item>
         <el-form-item label="间隔">
           <el-input-number v-model="policyForm.interval_sec" :min="10" :step="30" /> 秒
         </el-form-item>
-        <el-form-item label="固定大小">
+        <el-form-item label="流量类型">
+          <el-segmented
+            v-model="policyForm.trafficType"
+            :options="[{ label: '固定', value: 'fixed' }, { label: '随机', value: 'random' }]"
+          />
+        </el-form-item>
+        <el-form-item v-if="policyForm.trafficType === 'fixed'" label="固定大小">
           <el-input-number v-model="policyForm.size_mb" :min="1" :step="1" /> MB
         </el-form-item>
-        <el-form-item label="随机区间">
+        <el-form-item v-else label="随机区间">
           <el-input-number v-model="policyForm.size_min_mb" :min="0" :step="1" size="small" />
-          ~
+          <span style="margin: 0 8px">~</span>
           <el-input-number v-model="policyForm.size_max_mb" :min="0" :step="1" size="small" /> MB
-          <div class="muted small">max &gt; min 时每次随机；否则用上面的固定大小</div>
+          <div class="muted small">每次上传在 min~max 间随机</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -408,7 +486,7 @@ onUnmounted(() => {
       </template>
     </el-dialog>
 
-    <!-- events: chart + detail -->
+    <!-- events -->
     <el-dialog v-model="showEvents" :title="`上传日志（近 24 小时）· ${eventsNodeName}`" width="820" @close="events = []">
       <div v-loading="eventsLoading">
         <v-chart v-if="events.length" :option="chartOption" autoresize style="height:240px" />
@@ -480,25 +558,204 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.dashboard { min-height: 100vh; background: #f5f7fa; }
+.dashboard {
+  display: flex;
+  min-height: 100vh;
+  background: var(--tk-bg-soft);
+}
+
+/* sidebar */
+.sidebar {
+  width: 220px;
+  background: var(--tk-slate-800);
+  color: #cbd5e1;
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+.sidebar .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 20px;
+}
+.sidebar .logo {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--tk-radius-btn);
+  background: var(--tk-blue);
+  color: #fff;
+  font-weight: 800;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.brand-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+.nav {
+  flex: 1;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--tk-radius-btn);
+  font-size: 14px;
+  color: #94a3b8;
+  transition: all var(--tk-transition);
+}
+.nav-item.active {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-weight: 500;
+}
+.sidebar-foot {
+  padding: 8px;
+}
+
+/* main */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 .topbar {
-  display: flex; justify-content: space-between; align-items: center;
-  height: 56px; padding: 0 20px; background: #fff; border-bottom: 1px solid #eee;
+  height: 60px;
+  background: var(--tk-bg);
+  border-bottom: 1px solid var(--tk-border);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
 }
-.title { font-weight: 600; }
-.actions .el-button.active { color: #67c23a; }
-.content { max-width: 1280px; margin: 0 auto; padding: 20px; }
-.toolbar { margin-bottom: 12px; display: flex; gap: 8px; align-items: center; }
-.toolbar .el-button span { margin-left: 4px; }
-.muted { color: #909399; }
-.small { font-size: 12px; }
-.outdated { color: #e6a23c; font-weight: 600; }
-.tunnel-row { display: flex; align-items: center; gap: 4px; }
-.tunnel-url { margin-top: 10px; padding: 8px 10px; background: #f0f9eb; border-radius: 4px; word-break: break-all; }
-.tunnel-url a { color: #409eff; }
+.topbar-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--tk-text-strong);
+}
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.topbar-actions .el-button span {
+  margin-left: 4px;
+}
+.tunnel-on {
+  color: var(--tk-green) !important;
+}
+
+/* content */
+.content {
+  flex: 1;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* KPI */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.kpi-card {
+  background: var(--tk-bg);
+  border-radius: var(--tk-radius-card);
+  box-shadow: var(--tk-shadow-sm);
+  padding: 18px 20px;
+}
+.kpi-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tk-text-muted);
+  margin-bottom: 8px;
+}
+.kpi-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--tk-text-strong);
+  letter-spacing: -0.02em;
+}
+.kpi-value.sm {
+  font-size: 20px;
+}
+.kpi-sub {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--tk-text-muted);
+}
+
+/* table card */
+.table-card {
+  background: var(--tk-bg);
+  border-radius: var(--tk-radius-card);
+  box-shadow: var(--tk-shadow-sm);
+  padding: 8px 4px;
+}
+
+.muted {
+  color: var(--tk-text-muted);
+}
+.small {
+  font-size: 12px;
+}
+.outdated {
+  color: var(--tk-orange);
+  font-weight: 600;
+}
+
+/* tunnel */
+.tunnel-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tunnel-url {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(34, 197, 94, 0.08);
+  border-radius: var(--tk-radius-btn);
+  word-break: break-all;
+}
+.tunnel-url a {
+  color: var(--tk-blue);
+}
 .tunnel-log {
-  background: #1e1e1e; color: #d4d4d4; font-family: 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 12px; line-height: 1.5; padding: 10px; border-radius: 4px; max-height: 240px; overflow-y: auto;
+  background: var(--tk-slate-900);
+  color: #d4d4d4;
+  font-family: var(--tk-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px;
+  border-radius: var(--tk-radius-btn);
+  max-height: 240px;
+  overflow-y: auto;
 }
-.log-line { white-space: pre-wrap; word-break: break-all; }
+.log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+@media (max-width: 768px) {
+  .kpi-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .sidebar {
+    display: none;
+  }
+}
 </style>

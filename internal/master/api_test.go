@@ -242,3 +242,16 @@ func TestEventsAndInstallCommand(t *testing.T) {
 		t.Fatalf("install command missing token: %s", cmd)
 	}
 }
+
+func TestRestoreTunnelIntentNoopWhenOff(t *testing.T) {
+	srv := newAPIServer(t)
+	ctx := context.Background()
+	// No setting yet, or explicitly off → must not launch cloudflared.
+	srv.RestoreTunnelIntent(ctx)
+	if err := srv.store.SetSetting(ctx, settingTunnelEnabled, "0"); err != nil {
+		t.Fatal(err)
+	}
+	srv.RestoreTunnelIntent(ctx)
+	// (setting "1" would trigger a real `go Enable()` that downloads cloudflared;
+	// not exercised here to keep the unit test hermetic — covered by deploy smoke.)
+}

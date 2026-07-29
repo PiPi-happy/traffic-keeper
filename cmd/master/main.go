@@ -55,6 +55,9 @@ func main() {
 		}
 	}()
 
+	// Re-enable the tunnel if it was on before restart (new trycloudflare URL).
+	srv.RestoreTunnelIntent(context.Background())
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop

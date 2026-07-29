@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acme Inc. — 设计风格指南 (Design Style Guide)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --primary-blue: #2563eb;
+            --primary-blue-dark: #1d4ed8;
+            --primary-blue-light: #3b82f6;
+            --green: #22c55e;
+            --orange: #f59e0b;
+            --dark-gray: #333333;
+            --medium-gray: #6b7280;
+            --light-gray: #f3f4f6;
+            --border-gray: #d1d5db;
+            --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+        }
+
+        html { -webkit-font-smoothing: antialiased; scroll-behavior: smooth; }
+
+        body {
+            font-family: var(--font-sans);
+            font-size: 15px;
+            line-height: 1.6;
+            color: #1f2937;
+            background: #f8fafc;
+        }
+
+        /* ===== Guide Layout ===== */
+        .guide-sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 260px;
+            height: 100vh;
+            background: #1e293b;
+            padding: 32px 24px;
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        .guide-sidebar h2 {
+            font-size: 16px;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+
+        .guide-sidebar .subtitle {
+            font-size: 11px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 28px;
+        }
+
+        .guide-nav { list-style: none; }
+
+        .guide-nav li { margin-bottom: 4px; }
+
+        .guide-nav a {
+            display: block;
+            padding: 8px 12px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #94a3b8;
+            text-decoration: none;
+            border-radius: 6px;
+            transition: all 0.15s ease;
+        }
+
+        .guide-nav a:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .guide-main {
+            margin-left: 260px;
+            padding: 48px 64px 80px;
+            max-width: 960px;
+        }
+
+        /* ===== Section ===== */
+        .guide-section {
+            margin-bottom: 64px;
+            scroll-margin-top: 32px;
+        }
+
+        .guide-section h2 {
+            font-size: 28px;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+            padding-bottom: 16px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .guide-section h2 .num {
+            color: var(--primary-blue);
+            font-weight: 800;
+            margin-right: 8px;
+        }
+
+        .guide-section > p {
+            color: #475569;
+            margin-bottom: 24px;
+            margin-top: 12px;
+            line-height: 1.7;
+        }
+
+        .guide-section h3 {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1e293b;
+            margin: 32px 0 12px;
+        }
+
+        .guide-section h4 {
+            font-size: 15px;
+            font-weight: 600;
+            color: #334155;
+            margin: 20px 0 8px;
+        }
+
+        /* ===== Swatch ===== */
+        .color-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .swatch {
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+            border: 1px solid #e2e8f0;
+        }
+
+        .swatch-color {
+            height: 72px;
+        }
+
+        .swatch-info {
+            padding: 10px 12px;
+            background: #ffffff;
+        }
+
+        .swatch-name {
+            font-size: 12px;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 2px;
+        }
+
+        .swatch-value {
+            font-size: 11px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            color: #64748b;
+        }
+
+        /* ===== Type Specimen ===== */
+        .type-specimen {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 24px;
+            margin-bottom: 16px;
+        }
+
+        .type-specimen .sample {
+            margin-bottom: 8px;
+            word-break: break-word;
+        }
+
+        .type-specimen .meta {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .type-specimen .meta span {
+            font-size: 12px;
+            color: #64748b;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+        }
+
+        /* ===== Code Block ===== */
+        .code-block {
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 20px 24px;
+            border-radius: 10px;
+            overflow-x: auto;
+            margin: 12px 0 24px;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 13px;
+            line-height: 1.7;
+        }
+
+        .code-block .comment { color: #64748b; }
+        .code-block .prop { color: #7dd3fc; }
+        .code-block .val { color: #fbbf24; }
+        .code-block .tag { color: #f472b6; }
+        .code-block .cls { color: #a78bfa; }
+
+        /* ===== Demo Box ===== */
+        .demo-box {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 24px;
+            margin: 12px 0 24px;
+        }
+
+        .demo-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 12px;
+        }
+
+        /* ===== Table ===== */
+        .spec-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0 24px;
+            font-size: 13px;
+        }
+
+        .spec-table th {
+            background: #f1f5f9;
+            padding: 10px 14px;
+            text-align: left;
+            font-weight: 600;
+            color: #334155;
+            border-bottom: 2px solid #e2e8f0;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .spec-table td {
+            padding: 10px 14px;
+            border-bottom: 1px solid #f1f5f9;
+            color: #475569;
+            vertical-align: top;
+        }
+
+        .spec-table code {
+            background: #f1f5f9;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            color: #7c3aed;
+        }
+
+        /* ===== Spacing Demo ===== */
+        .spacing-demo {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 8px;
+        }
+
+        .spacing-bar {
+            height: 16px;
+            background: var(--primary-blue);
+            border-radius: 4px;
+            opacity: 0.6;
+        }
+
+        .spacing-label {
+            font-size: 12px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            color: #64748b;
+            min-width: 120px;
+        }
+
+        /* ===== Shadow Demo ===== */
+        .shadow-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 24px;
+            margin: 12px 0;
+        }
+
+        .shadow-card {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .shadow-card .label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #334155;
+            margin-top: 12px;
+        }
+
+        .shadow-card .val {
+            font-size: 11px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            color: #64748b;
+            margin-top: 4px;
+        }
+
+        /* ===== Radius Demo ===== */
+        .radius-demo {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin: 12px 0;
+        }
+
+        .radius-box {
+            width: 80px;
+            height: 80px;
+            background: var(--primary-blue);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* ===== Responsive Note ===== */
+        .responsive-note {
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            padding: 14px 18px;
+            margin: 12px 0 24px;
+            font-size: 13px;
+            color: #1e40af;
+        }
+
+        .responsive-note strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        /* ===== Inline Buttons Demo ===== */
+        .btn-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        /* Re-use project button styles for demo */
+        .demo-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            border: 2px solid transparent;
+            font-family: var(--font-sans);
+            transition: all 0.2s ease;
+        }
+
+        .demo-btn-primary { background: var(--primary-blue); color: #fff; }
+        .demo-btn-primary:hover { background: var(--primary-blue-dark); }
+        .demo-btn-white { background: #fff; color: var(--primary-blue); }
+        .demo-btn-dark { background: #1e293b; color: #fff; }
+        .demo-btn-dark:hover { background: #0f172a; }
+        .demo-btn-outline { background: transparent; color: #374151; border-color: #d1d5db; }
+        .demo-btn-outline:hover { border-color: #9ca3af; background: rgba(0,0,0,0.03); }
+        .demo-btn-orange { background: #1e3a8a; color: #fff; border-radius: 10px; padding: 14px 28px; font-size: 16px; }
+        .demo-btn-orange:hover { background: #172554; }
+        .demo-btn-orange-outline { background: #fff; color: #1f2937; border: 2px solid #1e3a8a; border-radius: 10px; padding: 14px 28px; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+<!-- ===== Sidebar Nav ===== -->
+<nav class="guide-sidebar">
+    <h2>⚡ Acme Inc.</h2>
+    <div class="subtitle">Design Style Guide v1.0</div>
+    <ul class="guide-nav">
+        <li><a href="#overview">1. 概述 Overview</a></li>
+        <li><a href="#palette">2. 调色板 Color Palette</a></li>
+        <li><a href="#typography">3. 排版 Typography</a></li>
+        <li><a href="#spacing">4. 间距系统 Spacing</a></li>
+        <li><a href="#components">5. 组件样式 Components</a></li>
+        <li><a href="#shadows">6. 阴影和层级 Shadows</a></li>
+        <li><a href="#animations">7. 动画和过渡 Animations</a></li>
+        <li><a href="#radius">8. 边框圆角 Border Radius</a></li>
+        <li><a href="#opacity">9. 不透明度 Opacity</a></li>
+        <li><a href="#tailwind">10. Tailwind CSS 用法</a></li>
+        <li><a href="#code-examples">11. 组件代码参考</a></li>
+    </ul>
+</nav>
+
+<!-- ===== Main Content ===== -->
+<main class="guide-main">
+
+    <!-- ===== 1. Overview ===== -->
+    <section class="guide-section" id="overview">
+        <h2><span class="num">01</span>概述 Overview</h2>
+        <p>
+            本风格指南定义了 <strong>Acme Inc.</strong> 着陆页项目的完整设计系统。该项目采用
+            <strong>扁平化设计语言 (Flat Design)</strong>，以干净、现代的视觉风格为核心，强调清晰的层级结构、一致性的间距节奏和精心调配的配色方案。
+        </p>
+        <h3>设计原则</h3>
+        <table class="spec-table">
+            <thead><tr><th>原则</th><th>说明</th></tr></thead>
+            <tbody>
+                <tr><td><strong>清晰至上</strong></td><td>每个区块有明确的视觉层级，标题 → 副标题 → 正文 → 辅助信息层层递进</td></tr>
+                <tr><td><strong>一致性</strong></td><td>间距遵循 4px/8px 基础网格，圆角、阴影、动画时间函数全站统一</td></tr>
+                <tr><td><strong>色彩语义化</strong></td><td>蓝色 = 主品牌/交互，绿色 = 成就/成功，橙色 = 行动/能量，灰度 = 层级</td></tr>
+                <tr><td><strong>响应式优先</strong></td><td>桌面优先设计，768px 断点以下自动适配移动端</td></tr>
+            </tbody>
+        </table>
+
+        <h3>技术栈</h3>
+        <table class="spec-table">
+            <thead><tr><th>项目</th><th>选型</th></tr></thead>
+            <tbody>
+                <tr><td>字体</td><td><code>Inter</code> (Google Fonts) — weights: 400, 500, 600, 700, 800</td></tr>
+                <tr><td>图标</td><td>内联 SVG (Material Design icons path)</td></tr>
+                <tr><td>CSS 架构</td><td>纯 CSS 变量系统 (<code>:root</code>)，BEM-like 类命名</td></tr>
+                <tr><td>布局</td><td>CSS Grid + Flexbox 混合布局</td></tr>
+                <tr><td>响应式</td><td>单断点 <code>@media (max-width: 768px)</code></td></tr>
+                <tr><td>浏览器前缀</td><td><code>-webkit-backdrop-filter</code>, <code>-webkit-font-smoothing</code>, <code>-webkit-text-size-adjust</code></td></tr>
+            </tbody>
+        </table>
+
+        <h3>页面结构总览</h3>
+        <table class="spec-table">
+            <thead><tr><th>#</th><th>区块</th><th>背景色</th><th>容器宽度</th></tr></thead>
+            <tbody>
+                <tr><td>1</td><td>Header (固定导航)</td><td><code>rgba(255,255,255,0.8)</code> 毛玻璃</td><td>1200px</td></tr>
+                <tr><td>2</td><td>Hero (主视觉)</td><td><code>linear-gradient(135deg, #2563eb, #1d4ed8)</code></td><td>1200px</td></tr>
+                <tr><td>3</td><td>Stats (数据指标)</td><td><code>#ffffff</code></td><td>1200px</td></tr>
+                <tr><td>4</td><td>About (平台介绍)</td><td><code>#f8f9fa</code></td><td>800px (窄容器)</td></tr>
+                <tr><td>5</td><td>Features (功能特性)</td><td><code>#ffffff</code></td><td>1200px</td></tr>
+                <tr><td>6</td><td>Pricing (定价方案)</td><td><code>#ffffff</code></td><td>1200px</td></tr>
+                <tr><td>7</td><td>Blog (博客文章)</td><td><code>#f8f9fa</code></td><td>1200px</td></tr>
+                <tr><td>8</td><td>CTA (行动号召)</td><td><code>#f59e0b</code> 橙色</td><td>1200px</td></tr>
+                <tr><td>9</td><td>Footer (页脚)</td><td><code>#1e293b</code> 深海军蓝</td><td>1200px</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <!-- ===== 2. Color Palette ===== -->
+    <section class="guide-section" id="palette">
+        <h2><span class="num">02</span>调色板 Color Palette</h2>
+        <p>整个项目使用一套基于 CSS 自定义属性的色彩系统，主色调为 <strong>蓝色</strong>，搭配绿色和橙色作为辅助强调色。</p>
+
+        <h3>主色 Primary</h3>
+        <div class="color-grid">
+            <div class="swatch"><div class="swatch-color" style="background:#2563eb;"></div><div class="swatch-info"><div class="swatch-name">Primary Blue</div><div class="swatch-value">#2563eb</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#1d4ed8;"></div><div class="swatch-info"><div class="swatch-name">Primary Dark</div><div class="swatch-value">#1d4ed8</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#3b82f6;"></div><div class="swatch-info"><div class="swatch-name">Primary Light</div><div class="swatch-value">#3b82f6</div></div></div>
+        </div>
+
+        <h3>辅助色 Accent</h3>
+        <div class="color-grid">
+            <div class="swatch"><div class="swatch-color" style="background:#22c55e;"></div><div class="swatch-info"><div class="swatch-name">Green (成功/数据)</div><div class="swatch-value">#22c55e</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#f59e0b;"></div><div class="swatch-info"><div class="swatch-name">Amber (CTA/行动)</div><div class="swatch-value">#f59e0b</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#8b5cf6;"></div><div class="swatch-info"><div class="swatch-name">Purple (链接图标)</div><div class="swatch-value">#8b5cf6</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#ef4444;"></div><div class="swatch-info"><div class="swatch-name">Red (安全图标)</div><div class="swatch-value">#ef4444</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#0ea5e9;"></div><div class="swatch-info"><div class="swatch-name">Sky/Teal (支持图标)</div><div class="swatch-value">#0ea5e9</div></div></div>
+        </div>
+
+        <h3>中性色 Neutral (灰度)</h3>
+        <div class="color-grid">
+            <div class="swatch"><div class="swatch-color" style="background:#0f172a;"></div><div class="swatch-info"><div class="swatch-name">Slate 900</div><div class="swatch-value">#0f172a</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#1e293b;"></div><div class="swatch-info"><div class="swatch-name">Slate 800 (Footer)</div><div class="swatch-value">#1e293b</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#1f2937;"></div><div class="swatch-info"><div class="swatch-name">Gray 800 (按钮/暗块)</div><div class="swatch-value">#1f2937</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#1a202c;"></div><div class="swatch-info"><div class="swatch-name">标题色 Heading</div><div class="swatch-value">#1a202c</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#333333;"></div><div class="swatch-info"><div class="swatch-name">Body Dark</div><div class="swatch-value">#333333</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#374151;"></div><div class="swatch-info"><div class="swatch-name">Gray 700</div><div class="swatch-value">#374151</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#4b5563;"></div><div class="swatch-info"><div class="swatch-name">Gray 600 (导航)</div><div class="swatch-value">#4b5563</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#4a5568;"></div><div class="swatch-info"><div class="swatch-name">正文 Body</div><div class="swatch-value">#4a5568</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#6b7280;"></div><div class="swatch-info"><div class="swatch-name">Gray 500 (辅助文字)</div><div class="swatch-value">#6b7280</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#94a3b8;"></div><div class="swatch-info"><div class="swatch-name">Slate 400 (Footer 文字)</div><div class="swatch-value">#94a3b8</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#64748b;"></div><div class="swatch-info"><div class="swatch-name">Slate 500 (版权)</div><div class="swatch-value">#64748b</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#d1d5db;"></div><div class="swatch-info"><div class="swatch-name">Gray 300 (边框)</div><div class="swatch-value">#d1d5db</div></div></div>
+        </div>
+
+        <h3>背景色 Backgrounds</h3>
+        <div class="color-grid">
+            <div class="swatch"><div class="swatch-color" style="background:#ffffff; border:1px solid #e2e8f0;"></div><div class="swatch-info"><div class="swatch-name">White (默认背景)</div><div class="swatch-value">#ffffff</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#f8f9fa;"></div><div class="swatch-info"><div class="swatch-name">Light Gray (交替背景)</div><div class="swatch-value">#f8f9fa</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#f3f4f6;"></div><div class="swatch-info"><div class="swatch-name">Gray 100 (Stats 底边)</div><div class="swatch-value">#f3f4f6</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#e5e7eb;"></div><div class="swatch-info"><div class="swatch-name">Gray 200 (占位/线条)</div><div class="swatch-value">#e5e7eb</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#1e3a8a;"></div><div class="swatch-info"><div class="swatch-name">Blue 900 (CTA 深按钮)</div><div class="swatch-value">#1e3a8a</div></div></div>
+        </div>
+
+        <h3>功能卡片浅色背景</h3>
+        <div class="color-grid">
+            <div class="swatch"><div class="swatch-color" style="background:#eef2ff;"></div><div class="swatch-info"><div class="swatch-name">Indigo 50</div><div class="swatch-value">#eef2ff</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#ecfdf5;"></div><div class="swatch-info"><div class="swatch-name">Green 50</div><div class="swatch-value">#ecfdf5</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#fefce8;"></div><div class="swatch-info"><div class="swatch-name">Yellow 50</div><div class="swatch-value">#fefce8</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#fdf2f8;"></div><div class="swatch-info"><div class="swatch-name">Pink 50</div><div class="swatch-value">#fdf2f8</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#fef2f2;"></div><div class="swatch-info"><div class="swatch-name">Red 50</div><div class="swatch-value">#fef2f2</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:#eff6ff;"></div><div class="swatch-info"><div class="swatch-name">Blue 50</div><div class="swatch-value">#eff6ff</div></div></div>
+        </div>
+
+        <h3>渐变 Gradients</h3>
+        <div class="color-grid">
+            <div class="swatch"><div class="swatch-color" style="background:linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);"></div><div class="swatch-info"><div class="swatch-name">Hero / Popular 卡片</div><div class="swatch-value">135deg, #3b82f6 → #2563eb</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);"></div><div class="swatch-info"><div class="swatch-name">Blog 图片占位 1</div><div class="swatch-value">135deg, #667eea → #764ba2</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:linear-gradient(135deg, #f093fb 0%, #f5576c 100%);"></div><div class="swatch-info"><div class="swatch-name">Blog 图片占位 2</div><div class="swatch-value">135deg, #f093fb → #f5576c</div></div></div>
+            <div class="swatch"><div class="swatch-color" style="background:linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);"></div><div class="swatch-info"><div class="swatch-name">Blog 图片占位 3</div><div class="swatch-value">135deg, #4facfe → #00f2fe</div></div></div>
+        </div>
+    </section>
+
+    <!-- ===== 3. Typography ===== -->
+    <section class="guide-section" id="typography">
+        <h2><span class="num">03</span>排版 Typography</h2>
+        <p>全站使用 <code>Inter</code> 字体族，基础字号 <code>16px</code>，基础行高 <code>1.5</code>。通过字重 (400–800) 和字号 (11px–48px) 的组合建立清晰的视觉层级。</p>
+
+        <h3>字体栈</h3>
+        <div class="code-block">
+<span class="cls">'Inter'</span>, ui-sans-serif, system-ui, sans-serif, <span class="cls">"Apple Color Emoji"</span>, <span class="cls">"Segoe UI Emoji"</span>, <span class="cls">"Segoe UI Symbol"</span>, <span class="cls">"Noto Color Emoji"</span>
+        </div>
+
+        <h3>字重使用规范</h3>
+        <table class="spec-table">
+            <thead><tr><th>Weight</th><th>名称</th><th>使用场景</th></tr></thead>
+            <tbody>
+                <tr><td><code>400</code></td><td>Regular</td><td>正文段落、Hero 副标题、Feature 描述、定价周期</td></tr>
+                <tr><td><code>500</code></td><td>Medium</td><td>导航链接、博客日期、辅助标签</td></tr>
+                <tr><td><code>600</code></td><td>Semi-Bold</td><td>按钮文字、Stats 标签、Footer 列标题、博客链接、定价提示文字</td></tr>
+                <tr><td><code>700</code></td><td>Bold</td><td>Logo 文字、Feature 标题、Section 标题、Pricing 方案名、博客标题、Footer 列标题</td></tr>
+                <tr><td><code>800</code></td><td>Extra-Bold</td><td>Hero 大标题、About 标题、Section 大标题、Stats 数字、Pricing 金额、CTA 标题</td></tr>
+            </tbody>
+        </table>
+
+        <h3>字号层级 Scale</h3>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:48px; font-weight:800; line-height:1.15; letter-spacing:-0.03em; color:#1a202c;">Hero Title — 48px / 800 / 1.15</div>
+            <div class="meta"><span>hero-title</span><span>letter-spacing: -0.03em</span></div>
+        </div>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:44px; font-weight:800; line-height:1.1; letter-spacing:-0.02em; color:#1f2937;">$79 Pricing — 44px / 800 / 1.1</div>
+            <div class="meta"><span>pricing-amount</span><span>letter-spacing: -0.02em</span></div>
+        </div>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:42px; font-weight:800; line-height:1.1; letter-spacing:-0.02em; color:#22c55e;">500k+ Stats — 42px / 800 / 1.1</div>
+            <div class="meta"><span>stat-number</span></div>
+        </div>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:40px; font-weight:800; line-height:1.2; letter-spacing:-0.02em; color:#1f2937;">CTA Title — 40px / 800</div>
+            <div class="meta"><span>cta-title</span></div>
+        </div>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:36px; font-weight:800; line-height:1.25; letter-spacing:-0.02em; color:#1a202c;">Section Title — 36px / 800 / 1.25</div>
+            <div class="meta"><span>section-title / about-heading</span></div>
+        </div>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:22px; font-weight:700; color:#1f2937;">Pricing Plan Name — 22px / 700</div>
+            <div class="meta"><span>pricing-name</span></div>
+        </div>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:20px; font-weight:700; color:#1f2937;">Logo Text / Feature Title — 20px / 700</div>
+            <div class="meta"><span>logo-text / feature-title</span></div>
+        </div>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:18px; font-weight:400; color:#4a5568; line-height:1.6;">Section Subtitle — 18px / 400 / 1.6</div>
+            <div class="meta"><span>section-subtitle / hero-subtitle / cta-subtitle</span></div>
+        </div>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:16px; font-weight:400; color:#4a5568; line-height:1.7;">Body Text — 16px / 400 / 1.7 (About 段落)</div>
+            <div class="meta"><span>body base / about p</span></div>
+        </div>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:15px; font-weight:400; color:#4a5568; line-height:1.6;">Feature Desc / Pricing Feature — 15px / 400 / 1.6</div>
+            <div class="meta"><span>feature-desc / pricing-features li</span></div>
+        </div>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:14px; font-weight:500; color:#4b5563; text-transform:uppercase; letter-spacing:0.05em;">Nav Link — 14px / 500 / uppercase</div>
+            <div class="meta"><span>nav a</span><span>letter-spacing: 0.05em</span></div>
+        </div>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:13px; font-weight:600; color:#333333; text-transform:uppercase; letter-spacing:0.08em;">STAT LABEL — 13px / 600 / uppercase</div>
+            <div class="meta"><span>stat-label / pricing-note / blog-date</span></div>
+        </div>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:12px; font-weight:600; color:#fff; text-transform:uppercase; letter-spacing:0.08em;">HERO BADGE — 12px / 600 / uppercase</div>
+            <div class="meta"><span>hero-badge span</span></div>
+        </div>
+        <div class="type-specimen">
+            <div class="sample" style="font-size:11px; font-weight:700; color:#fff; text-transform:uppercase; letter-spacing:0.1em;">MOST POPULAR — 11px / 700 / uppercase</div>
+            <div class="meta"><span>pricing-badge span</span></div>
+        </div>
+
+        <h3>文字装饰规范</h3>
+        <table class="spec-table">
+            <thead><tr><th>属性</th><th>使用场景</th><th>值</th></tr></thead>
+            <tbody>
+                <tr><td><code>text-transform: uppercase</code></td><td>导航、Stats 标签、Hero Badge、Pricing Badge、Footer 列标题、CTA 提示</td><td>—</td></tr>
+                <tr><td><code>letter-spacing: -0.03em</code></td><td>Hero 大标题 (48px)</td><td>最紧凑</td></tr>
+                <tr><td><code>letter-spacing: -0.02em</code></td><td>Section 标题、Stats 数字、Pricing 金额、Logo 文字</td><td>大字号通用</td></tr>
+                <tr><td><code>letter-spacing: 0.05em</code></td><td>导航链接、Pricing 提示、Footer 列标题</td><td>小字号大写文字</td></tr>
+                <tr><td><code>letter-spacing: 0.08em</code></td><td>Stats 标签、Hero Badge</td><td>极小字号大写文字</td></tr>
+                <tr><td><code>letter-spacing: 0.1em</code></td><td>Pricing Badge "MOST POPULAR"、Footer "FLAT DESIGN SYSTEM"</td><td>徽章/标签</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <!-- ===== 4. Spacing ===== -->
+    <section class="guide-section" id="spacing">
+        <h2><span class="num">04</span>间距系统 Spacing</h2>
+        <p>间距基于 <strong>4px 基础网格</strong>，主要使用 4px 的倍数 (4, 8, 10, 12, 14, 16, 20, 24, 28, 32, 36, 40, 48, 60, 64, 80, 120)。</p>
+
+        <h3>容器与区块间距</h3>
+        <table class="spec-table">
+            <thead><tr><th>位置</th><th>属性</th><th>值</th></tr></thead>
+            <tbody>
+                <tr><td>主容器</td><td><code>max-width</code></td><td>1200px</td></tr>
+                <tr><td>主容器</td><td><code>padding</code></td><td>0 24px</td></tr>
+                <tr><td>About 容器</td><td><code>max-width</code></td><td>800px (窄容器，文字阅读优化)</td></tr>
+                <tr><td>Hero 区块</td><td><code>padding</code></td><td>120px 0 80px (顶部留出固定导航空间)</td></tr>
+                <tr><td>标准区块 (Features/Pricing/Blog/CTA)</td><td><code>padding</code></td><td>80px 0</td></tr>
+                <tr><td>Stats 区块</td><td><code>padding</code></td><td>64px 0</td></tr>
+                <tr><td>Footer 区块</td><td><code>padding</code></td><td>60px 0 0</td></tr>
+                <tr><td>Header</td><td><code>padding</code></td><td>16px 0</td></tr>
+            </tbody>
+        </table>
+
+        <h3>内部元素间距</h3>
+        <table class="spec-table">
+            <thead><tr><th>场景</th><th>值</th></tr></thead>
+            <tbody>
+                <tr><td>Section Header → Grid 内容</td><td><code>48px</code> (margin-bottom)</td></tr>
+                <tr><td>Grid 卡片之间 gap</td><td><code>24px</code></td></tr>
+                <tr><td>Stats Grid gap</td><td><code>32px</code></td></tr>
+                <tr><td>Footer Grid gap</td><td><code>40px</code></td></tr>
+                <tr><td>Hero 左右两列 gap</td><td><code>60px</code></td></tr>
+                <tr><td>按钮组 gap</td><td><code>16px</code></td></tr>
+                <tr><td>Header 按钮组 gap</td><td><code>12px</code></td></tr>
+                <tr><td>导航链接 gap</td><td><code>32px</code></td></tr>
+                <tr><td>Feature 卡片内边距</td><td><code>32px</code></td></tr>
+                <tr><td>Pricing 卡片内边距</td><td><code>36px 32px</code></td></tr>
+                <tr><td>Blog 卡片 body 内边距</td><td><code>24px</code></td></tr>
+                <tr><td>Feature 图标 → 标题 margin</td><td><code>20px</code></td></tr>
+                <tr><td>标题 → 副标题 margin</td><td><code>12px</code></td></tr>
+                <tr><td>Pricing Feature 列表项 padding</td><td><code>8px 0</code></td></tr>
+                <tr><td>Footer 链接列表项 margin</td><td><code>10px 0</code></td></tr>
+                <tr><td>Footer 列标题 → 链接 margin</td><td><code>16px</code></td></tr>
+                <tr><td>Footer 社交图标 gap</td><td><code>10px</code></td></tr>
+            </tbody>
+        </table>
+
+        <h3>间距可视化 (横向)</h3>
+        <div class="demo-box">
+            <div class="demo-label">常用间距值对照</div>
+            <div class="spacing-demo"><div class="spacing-bar" style="width:4px;"></div><div class="spacing-label">4px</div></div>
+            <div class="spacing-demo"><div class="spacing-bar" style="width:8px;"></div><div class="spacing-label">8px</div></div>
+            <div class="spacing-demo"><div class="spacing-bar" style="width:12px;"></div><div class="spacing-label">12px</div></div>
+            <div class="spacing-demo"><div class="spacing-bar" style="width:16px;"></div><div class="spacing-label">16px</div></div>
+            <div class="spacing-demo"><div class="spacing-bar" style="width:24px;"></div><div class="spacing-label">24px (Grid gap)</div></div>
+            <div class="spacing-demo"><div class="spacing-bar" style="width:32px;"></div><div class="spacing-label">32px (卡片 padding)</div></div>
+            <div class="spacing-demo"><div class="spacing-bar" style="width:48px;"></div><div class="spacing-label">48px (Section → Grid)</div></div>
+            <div class="spacing-demo"><div class="spacing-bar" style="width:80px;"></div><div class="spacing-label">80px (区块 padding)</div></div>
+        </div>
+    </section>
+
+    <!-- ===== 5. Components ===== -->
+    <section class="guide-section" id="components">
+        <h2><span class="num">05</span>组件样式 Components</h2>
+
+        <h3>5.1 按钮系统 Buttons</h3>
+        <table class="spec-table">
+            <thead><tr><th>变体</th><th>背景</th><th>文字</th><th>圆角</th><th>Padding</th><th>场景</th></tr></thead>
+            <tbody>
+                <tr><td><strong>Primary (Header)</strong></td><td><code>#2563eb</code></td><td><code>#fff</code></td><td>8px</td><td>10px 20px</td><td>Header "Start free trial"</td></tr>
+                <tr><td><strong>Ghost (Header)</strong></td><td><code>transparent</code></td><td><code>#374151</code></td><td>8px</td><td>10px 20px</td><td>Header "Log in"，2px gray border</td></tr>
+                <tr><td><strong>White (Hero)</strong></td><td><code>#fff</code></td><td><code>#2563eb</code></td><td>10px</td><td>14px 28px</td><td>Hero "Start free trial"</td></tr>
+                <tr><td><strong>Outline White (Hero)</strong></td><td><code>transparent</code></td><td><code>#fff</code></td><td>10px</td><td>14px 28px</td><td>Hero "Watch demo"，2px rgba white border</td></tr>
+                <tr><td><strong>Dark (Pricing)</strong></td><td><code>#1e293b</code></td><td><code>#fff</code></td><td>10px</td><td>14px 0 (全宽)</td><td>Starter/Enterprise CTA</td></tr>
+                <tr><td><strong>White (Pricing Popular)</strong></td><td><code>#fff</code></td><td><code>#2563eb</code></td><td>10px</td><td>14px 0 (全宽)</td><td>Professional CTA</td></tr>
+                <tr><td><strong>Blue Dark (CTA)</strong></td><td><code>#1e3a8a</code></td><td><code>#fff</code></td><td>10px</td><td>14px 28px</td><td>CTA Section "Start free trial"</td></tr>
+                <tr><td><strong>White Outline (CTA)</strong></td><td><code>#fff</code></td><td><code>#1f2937</code></td><td>10px</td><td>14px 28px</td><td>CTA Section "Schedule a demo"，2px #1e3a8a border</td></tr>
+            </tbody>
+        </table>
+        <div class="demo-box">
+            <div class="demo-label">按钮实览</div>
+            <div class="btn-row">
+                <button class="demo-btn demo-btn-primary">Primary Header</button>
+                <button class="demo-btn demo-btn-outline">Ghost Log in</button>
+                <button class="demo-btn demo-btn-white" style="background:#fff; border:1px solid #e2e8f0;">White Hero</button>
+                <button class="demo-btn demo-btn-dark">Dark Pricing</button>
+            </div>
+            <div class="btn-row" style="margin-top:12px; background:#1e293b; padding:16px; border-radius:10px;">
+                <button class="demo-btn" style="background:#fff; color:#2563eb; border-radius:10px;">White Popular</button>
+                <button class="demo-btn" style="background:transparent; color:#fff; border:2px solid rgba(255,255,255,0.4); border-radius:10px;">Outline White</button>
+            </div>
+            <div class="btn-row" style="margin-top:12px; background:#f59e0b; padding:16px; border-radius:10px;">
+                <button class="demo-btn demo-btn-orange">CTA Primary</button>
+                <button class="demo-btn demo-btn-orange-outline">CTA Secondary</button>
+            </div>
+        </div>
+
+        <h3>5.2 卡片系统 Cards</h3>
+        <table class="spec-table">
+            <thead><tr><th>卡片类型</th><th>背景</th><th>圆角</th><th>内边距</th><th>阴影</th></tr></thead>
+            <tbody>
+                <tr><td>Feature Card</td><td>浅色 (#eef2ff 等)</td><td>12px</td><td>32px</td><td>无</td></tr>
+                <tr><td>Feature Icon</td><td>#ffffff</td><td>50% (圆形)</td><td>—</td><td>0 2px 8px rgba(0,0,0,0.08)</td></tr>
+                <tr><td>Pricing Default</td><td>#f8f9fa</td><td>16px</td><td>36px 32px</td><td>无</td></tr>
+                <tr><td>Pricing Popular</td><td>蓝色渐变</td><td>16px</td><td>36px 32px</td><td>无</td></tr>
+                <tr><td>Blog Card</td><td>#ffffff</td><td>12px</td><td>24px (body)</td><td>0 1px 3px rgba(0,0,0,0.06)</td></tr>
+                <tr><td>Hero Graphic Card</td><td>#ffffff</td><td>16px</td><td>32px</td><td>0 20px 60px rgba(0,0,0,0.15)</td></tr>
+            </tbody>
+        </table>
+
+        <h3>5.3 表单与输入</h3>
+        <p>本项目为着陆页，无表单组件。按钮是唯一的交互元素。</p>
+
+        <h3>5.4 导航 Navigation</h3>
+        <table class="spec-table">
+            <thead><tr><th>元素</th><th>规格</th></tr></thead>
+            <tbody>
+                <tr><td>Header 高度</td><td>自适应 (~64px)，padding 16px 0</td></tr>
+                <tr><td>Header 背景</td><td><code>rgba(255,255,255,0.8)</code> + <code>backdrop-filter: blur(12px)</code></td></tr>
+                <tr><td>Header 定位</td><td><code>position: fixed; z-index: 100</code></td></tr>
+                <tr><td>Logo 图标</td><td>32×32px 蓝底白闪电，border-radius 6px</td></tr>
+                <tr><td>Logo 文字</td><td>20px / 700 / #1f2937</td></tr>
+                <tr><td>导航链接</td><td>14px / 500 / uppercase / gap 32px</td></tr>
+                <tr><td>Footer 列导航</td><td>14px 链接 / gap 10px / 列标题 14px / 600 / uppercase / 蓝色</td></tr>
+            </tbody>
+        </table>
+
+        <h3>5.5 徽章 Badges</h3>
+        <table class="spec-table">
+            <thead><tr><th>徽章</th><th>背景</th><th>文字</th><th>圆角</th><th>Padding</th></tr></thead>
+            <tbody>
+                <tr><td>Hero Badge</td><td><code>rgba(255,255,255,0.15)</code></td><td>12px / 600 / #fff / uppercase</td><td>100px (胶囊)</td><td>6px 16px</td></tr>
+                <tr><td>Pricing "MOST POPULAR"</td><td><code>rgba(0,0,0,0.15)</code></td><td>11px / 700 / #fff / uppercase</td><td>0 (条形)</td><td>6px 0</td></tr>
+            </tbody>
+        </table>
+
+        <h3>5.6 社交图标</h3>
+        <table class="spec-table">
+            <thead><tr><th>属性</th><th>值</th></tr></thead>
+            <tbody>
+                <tr><td>容器尺寸</td><td>36×36px</td></tr>
+                <tr><td>背景</td><td><code>rgba(255,255,255,0.1)</code>，hover <code>rgba(255,255,255,0.2)</code></td></tr>
+                <tr><td>SVG 尺寸</td><td>18×18px</td></tr>
+                <tr><td>SVG 颜色</td><td>#94a3b8</td></tr>
+                <tr><td>圆角</td><td>50%</td></tr>
+        </table>
+    </section>
+
+    <!-- ===== 6. Shadows ===== -->
+    <section class="guide-section" id="shadows">
+        <h2><span class="num">06</span>阴影和层级 Shadows & Elevation</h2>
+        <p>阴影用于表达元素层级关系。项目采用轻量阴影策略，仅在需要浮起感的元素上使用。</p>
+
+        <div class="shadow-grid">
+            <div class="shadow-card" style="box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+                <div class="label">Feature Icon</div>
+                <div class="val">0 2px 8px rgba(0,0,0,0.08)</div>
+            </div>
+            <div class="shadow-card" style="box-shadow: 0 1px 3px rgba(0,0,0,0.06);">
+                <div class="label">Blog Card (默认)</div>
+                <div class="val">0 1px 3px rgba(0,0,0,0.06)</div>
+            </div>
+            <div class="shadow-card" style="box-shadow: 0 8px 24px rgba(0,0,0,0.1);">
+                <div class="label">Blog Card (hover)</div>
+                <div class="val">0 8px 24px rgba(0,0,0,0.1)</div>
+            </div>
+            <div class="shadow-card" style="box-shadow: 0 4px 14px rgba(0,0,0,0.1);">
+                <div class="label">Hero Button (默认)</div>
+                <div class="val">0 4px 14px rgba(0,0,0,0.1)</div>
+            </div>
+            <div class="shadow-card" style="box-shadow: 0 6px 20px rgba(0,0,0,0.15);">
+                <div class="label">Hero Button (hover)</div>
+                <div class="val">0 6px 20px rgba(0,0,0,0.15)</div>
+            </div>
+            <div class="shadow-card" style="box-shadow: 0 20px 60px rgba(0,0,0,0.15);">
+                <div class="label">Hero Graphic Card</div>
+                <div class="val">0 20px 60px rgba(0,0,0,0.15)</div>
+            </div>
+        </div>
+
+        <h3>层级规则</h3>
+        <table class="spec-table">
+            <thead><tr><th>层级</th><th>阴影</th><th>使用场景</th></tr></thead>
+            <tbody>
+                <tr><td>Level 0 — 贴面</td><td>无阴影</td><td>Feature Card、Pricing Card（用背景色区分层级）</td></tr>
+                <tr><td>Level 1 — 微浮</td><td><code>0 1px 3px rgba(0,0,0,0.06)</code></td><td>Blog Card 默认状态</td></tr>
+                <tr><td>Level 2 — 轻浮</td><td><code>0 2px 8px rgba(0,0,0,0.08)</code></td><td>Feature Icon 圆形背景</td></tr>
+                <tr><td>Level 3 — 中浮</td><td><code>0 4px 14px rgba(0,0,0,0.1)</code></td><td>Hero 主 CTA 按钮</td></tr>
+                <tr><td>Level 4 — 高浮</td><td><code>0 8px 24px rgba(0,0,0,0.1)</code></td><td>Blog Card hover 状态</td></tr>
+                <tr><td>Level 5 — 前景</td><td><code>0 20px 60px rgba(0,0,0,0.15)</code></td><td>Hero Graphic Card (最高层级)</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <!-- ===== 7. Animations ===== -->
+    <section class="guide-section" id="animations">
+        <h2><span class="num">07</span>动画和过渡 Animations & Transitions</h2>
+        <p>项目采用克制的动画策略，所有过渡均使用 <code>ease</code> 时间函数，时长为 <code>0.2s</code> 或 <code>0.3s</code>。</p>
+
+        <h3>过渡定义</h3>
+        <table class="spec-table">
+            <thead><tr><th>场景</th><th>属性</th><th>时长</th><th>函数</th><th>效果</th></tr></thead>
+            <tbody>
+                <tr><td>按钮通用</td><td><code>transition: all</code></td><td>0.2s</td><td>ease</td><td>颜色/背景/边框/位移变化</td></tr>
+                <tr><td>导航链接</td><td><code>transition: color</code></td><td>0.2s</td><td>ease</td><td>文字颜色渐变</td></tr>
+                <tr><td>Header 背景</td><td><code>transition: background-color</code></td><td>0.3s</td><td>ease</td><td>背景色渐变</td></tr>
+                <tr><td>Feature Card hover</td><td><code>transition: transform</code></td><td>0.2s</td><td>ease</td><td>向上浮起 4px</td></tr>
+                <tr><td>Blog Card hover</td><td><code>transition: transform, box-shadow</code></td><td>0.2s</td><td>ease</td><td>向上浮起 4px + 阴影加深</td></tr>
+                <tr><td>Hero 按钮 hover</td><td><code>transition: all</code></td><td>0.2s</td><td>ease</td><td>向上浮起 2px + 阴影加深</td></tr>
+                <tr><td>Footer 社交图标</td><td><code>transition: background</code></td><td>0.2s</td><td>ease</td><td>背景透明度变化</td></tr>
+                <tr><td>Footer 链接</td><td><code>transition: color</code></td><td>0.2s</td><td>ease</td><td>文字颜色变白</td></tr>
+                <tr><td>Blog 链接</td><td><code>transition: color</code></td><td>0.2s</td><td>ease</td><td>文字颜色变蓝</td></tr>
+            </tbody>
+        </table>
+
+        <h3>Hover 效果汇总</h3>
+        <table class="spec-table">
+            <thead><tr><th>元素</th><th>默认 → Hover 变化</th></tr></thead>
+            <tbody>
+                <tr><td>Header Primary 按钮</td><td><code>background: #2563eb</code> → <code>#1d4ed8</code> + <code>translateY(-1px)</code></td></tr>
+                <tr><td>Header Ghost 按钮</td><td><code>border-color: #d1d5db</code> → <code>#9ca3af</code> + <code>background: rgba(0,0,0,0.03)</code></td></tr>
+                <tr><td>Hero White 按钮</td><td><code>translateY(0)</code> → <code>translateY(-2px)</code> + 阴影升级</td></tr>
+                <tr><td>Hero Outline 按钮</td><td><code>border-color: rgba(255,255,255,0.4)</code> → <code>rgba(255,255,255,0.8)</code> + <code>background: rgba(255,255,255,0.1)</code></td></tr>
+                <tr><td>Pricing Dark 按钮</td><td><code>background: #1e293b</code> → <code>#0f172a</code></td></tr>
+                <tr><td>Pricing White 按钮</td><td><code>background: #fff</code> → <code>#f0f0f0</code></td></tr>
+                <tr><td>Feature Card</td><td><code>translateY(0)</code> → <code>translateY(-4px)</code></td></tr>
+                <tr><td>Blog Card</td><td><code>translateY(0)</code> + 轻阴影 → <code>translateY(-4px)</code> + 重阴影</td></tr>
+                <tr><td>导航链接</td><td><code>color: #4b5563</code> → <code>#2563eb</code></td></tr>
+                <tr><td>Footer 链接</td><td><code>color: #94a3b8</code> → <code>#ffffff</code></td></tr>
+                <tr><td>Footer 社交图标</td><td><code>background: rgba(255,255,255,0.1)</code> → <code>rgba(255,255,255,0.2)</code></td></tr>
+                <tr><td>Blog 链接</td><td><code>color: #1e293b</code> → <code>#3b82f6</code></td></tr>
+                <tr><td>CTA Primary</td><td><code>background: #1e3a8a</code> → <code>#172554</code></td></tr>
+                <tr><td>CTA Secondary</td><td><code>background: #fff</code> → <code>#f0f0f0</code></td></tr>
+        </table>
+    </section>
+
+    <!-- ===== 8. Border Radius ===== -->
+    <section class="guide-section" id="radius">
+        <h2><span class="num">08</span>边框圆角 Border Radius</h2>
+
+        <div class="radius-demo">
+            <div class="radius-box" style="border-radius:3px;">3px</div>
+            <div class="radius-box" style="border-radius:4px;">4px</div>
+            <div class="radius-box" style="border-radius:6px;">6px</div>
+            <div class="radius-box" style="border-radius:8px;">8px</div>
+            <div class="radius-box" style="border-radius:10px;">10px</div>
+            <div class="radius-box" style="border-radius:12px;">12px</div>
+            <div class="radius-box" style="border-radius:16px;">16px</div>
+            <div class="radius-box" style="border-radius:50%;">50%</div>
+            <div class="radius-box" style="border-radius:100px;">100px</div>
+        </div>
+
+        <table class="spec-table">
+            <thead><tr><th>圆角值</th><th>使用场景</th></tr></thead>
+            <tbody>
+                <tr><td><code>3px</code></td><td>Mini Chart 柱状图顶部、Graphic 内线条</td></tr>
+                <tr><td><code>4px</code></td><td>Spacing Demo 条形装饰</td></tr>
+                <tr><td><code>6px</code></td><td>Logo 图标方块</td></tr>
+                <tr><td><code>8px</code></td><td>Header 按钮 (通用 .btn 类)</td></tr>
+                <tr><td><code>10px</code></td><td>Hero 按钮、Pricing 按钮、CTA 按钮、Blog 链接 hover 区域</td></tr>
+                <tr><td><code>12px</code></td><td>Feature Card、Blog Card、Graphic 内部块</td></tr>
+                <tr><td><code>16px</code></td><td>Pricing Card、Hero Graphic Card</td></tr>
+                <tr><td><code>50%</code></td><td>Feature Icon 圆形、Graphic 圆圈、Footer 社交图标</td></tr>
+                <tr><td><code>100px</code></td><td>Hero Badge (胶囊形状)</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <!-- ===== 9. Opacity ===== -->
+    <section class="guide-section" id="opacity">
+        <h2><span class="num">09</span>不透明度和透明度 Opacity & Transparency</h2>
+
+        <table class="spec-table">
+            <thead><tr><th>值</th><th>格式</th><th>使用场景</th></tr></thead>
+            <tbody>
+                <tr><td>90%</td><td><code>rgba(255,255,255,0.9)</code></td><td>Graphic block SVG icon fill</td></tr>
+                <tr><td>85%</td><td><code>rgba(255,255,255,0.85)</code></td><td>Hero 副标题文字色</td></tr>
+                <tr><td>80%</td><td><code>rgba(255,255,255,0.8)</code></td><td>Header 背景、Pricing Popular 描述文字、Footer 文字</td></tr>
+                <tr><td>70%</td><td><code>opacity: 0.7</code> / <code>rgba(255,255,255,0.7)</code></td><td>Mini Chart 柱状图默认、Pricing Popular 周期文字</td></tr>
+                <tr><td>30%</td><td><code>rgba(245,158,11,0.3)</code> / <code>rgba(34,197,94,0.3)</code></td><td>浮动装饰圆圈 (半透明橙/绿)</td></tr>
+                <tr><td>20%</td><td><code>rgba(0,0,0,0.15)</code> / <code>rgba(255,255,255,0.2)</code></td><td>Pricing Badge 背景、Footer 社交图标 hover</td></tr>
+                <tr><td>15%</td><td><code>rgba(255,255,255,0.15)</code></td><td>Hero Badge 背景、Hero 渐变遮罩第二层</td></tr>
+                <tr><td>10%</td><td><code>rgba(255,255,255,0.1)</code></td><td>Footer 底部分隔线、社交图标默认背景、Hero Outline 按钮 hover</td></tr>
+                <tr><td>8%</td><td><code>rgba(255,255,255,0.08)</code></td><td>Hero 渐变遮罩第一层、Feature Icon 阴影</td></tr>
+                <tr><td>6%</td><td><code>rgba(0,0,0,0.06)</code></td><td>Blog Card 默认阴影</td></tr>
+                <tr><td>5%</td><td><code>rgba(255,255,255,0.05)</code></td><td>Hero 背景微妙光晕 1</td></tr>
+                <tr><td>3%</td><td><code>rgba(0,0,0,0.03)</code></td><td>Header Ghost 按钮 hover 背景</td></tr>
+        </table>
+    </section>
+
+    <!-- ===== 10. Tailwind CSS ===== -->
+    <section class="guide-section" id="tailwind">
+        <h2><span class="num">10</span>Tailwind CSS 对应用法</h2>
+        <p>本项目使用纯 CSS 编写，但其设计系统与 Tailwind CSS 的 utility class 完全对应。以下是项目中常用样式到 Tailwind class 的映射。</p>
+
+        <h3>颜色映射</h3>
+        <table class="spec-table">
+            <thead><tr><th>项目值</th><th>Tailwind Class</th></tr></thead>
+            <tbody>
+                <tr><td><code>#2563eb</code></td><td><code>bg-blue-600</code> / <code>text-blue-600</code></td></tr>
+                <tr><td><code>#1d4ed8</code></td><td><code>bg-blue-700</code></td></tr>
+                <tr><td><code>#3b82f6</code></td><td><code>bg-blue-500</code> / <code>text-blue-500</code></td></tr>
+                <tr><td><code>#22c55e</code></td><td><code>bg-green-500</code> / <code>text-green-500</code></td></tr>
+                <tr><td><code>#f59e0b</code></td><td><code>bg-amber-500</code></td></tr>
+                <tr><td><code>#8b5cf6</code></td><td><code>bg-violet-500</code></td></tr>
+                <tr><td><code>#ef4444</code></td><td><code>bg-red-500</code></td></tr>
+                <tr><td><code>#0ea5e9</code></td><td><code>bg-sky-500</code></td></tr>
+                <tr><td><code>#1e293b</code></td><td><code>bg-slate-800</code></td></tr>
+                <tr><td><code>#1f2937</code></td><td><code>bg-gray-800</code> / <code>text-gray-800</code></td></tr>
+                <tr><td><code>#4b5563</code></td><td><code>text-gray-600</code></td></tr>
+                <tr><td><code>#6b7280</code></td><td><code>text-gray-500</code></td></tr>
+                <tr><td><code>#94a3b8</code></td><td><code>text-slate-400</code></td></tr>
+                <tr><td><code>#f8f9fa</code></td><td><code>bg-gray-50</code></td></tr>
+                <tr><td><code>#f3f4f6</code></td><td><code>bg-gray-100</code></td></tr>
+                <tr><td><code>#d1d5db</code></td><td><code>border-gray-300</code></td></tr>
+            </tbody>
+        </table>
+
+        <h3>布局映射</h3>
+        <table class="spec-table">
+            <thead><tr><th>项目样式</th><th>Tailwind Class</th></tr></thead>
+            <tbody>
+                <tr><td><code>max-width: 1200px; margin: 0 auto; padding: 0 24px</code></td><td><code>container mx-auto px-6</code></td></tr>
+                <tr><td><code>display: flex; align-items: center; justify-content: space-between</code></td><td><code>flex items-center justify-between</code></td></tr>
+                <tr><td><code>display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px</code></td><td><code>grid grid-cols-3 gap-6</code></td></tr>
+                <tr><td><code>display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px</code></td><td><code>grid grid-cols-4 gap-8</code></td></tr>
+                <tr><td><code>position: fixed; top: 0; z-index: 100</code></td><td><code>fixed top-0 z-50</code></td></tr>
+                <tr><td><code>text-align: center</code></td><td><code>text-center</code></td></tr>
+                <tr><td><code>display: flex; gap: 16px; align-items: center</code></td><td><code>flex gap-4 items-center</code></td></tr>
+            </tbody>
+        </table>
+
+        <h3>响应式断点</h3>
+        <div class="code-block">
+<span class="comment">/* 项目使用单断点 */</span>
+<span class="prop">@media</span> (max-width: <span class="val">768px</span>)  <span class="comment">/* Tailwind: md: 前缀 (min-width: 768px) */</span>
+
+<span class="comment">/* 移动端适配策略：*/</span>
+<span class="comment">/* - 隐藏导航 → md:flex */</span>
+<span class="comment">/* - Hero 改纵向 → md:flex-row */</span>
+<span class="comment">/* - 3列→1列 → md:grid-cols-3 */</span>
+<span class="comment">/* - 4列→2列 → md:grid-cols-4 */</span>
+<span class="comment">/* - 标题缩小 → md:text-5xl */</span>
+        </div>
+    </section>
+
+    <!-- ===== 11. Code Examples ===== -->
+    <section class="guide-section" id="code-examples">
+        <h2><span class="num">11</span>组件参考设计代码示例</h2>
+
+        <h3>11.1 Feature Card</h3>
+        <div class="code-block">
+<span class="tag">&lt;div</span> <span class="cls">class</span>=<span class="val">"feature-card feature-card-blue"</span><span class="tag">&gt;</span>
+  <span class="tag">&lt;div</span> <span class="cls">class</span>=<span class="val">"feature-icon feature-icon-blue"</span><span class="tag">&gt;</span>
+    <span class="tag">&lt;svg&gt;</span>...<span class="tag">&lt;/svg&gt;</span>
+  <span class="tag">&lt;/div&gt;</span>
+  <span class="tag">&lt;h3</span> <span class="cls">class</span>=<span class="val">"feature-title"</span><span class="tag">&gt;</span>Real-time Collaboration<span class="tag">&lt;/h3&gt;</span>
+  <span class="tag">&lt;p</span> <span class="cls">class</span>=<span class="val">"feature-desc"</span><span class="tag">&gt;</span>Work together seamlessly...<span class="tag">&lt;/p&gt;</span>
+<span class="tag">&lt;/div&gt;</span>
+        </div>
+        <div class="code-block">
+<span class="comment">/* 核心 CSS */</span>
+<span class="cls">.feature-card</span> {
+  <span class="prop">padding</span>: <span class="val">32px</span>;
+  <span class="prop">border-radius</span>: <span class="val">12px</span>;
+  <span class="prop">transition</span>: <span class="val">transform 0.2s ease</span>;
+}
+<span class="cls">.feature-card:hover</span> { <span class="prop">transform</span>: <span class="val">translateY(-4px)</span>; }
+<span class="cls">.feature-icon</span> {
+  <span class="prop">width</span>: <span class="val">48px</span>; <span class="prop">height</span>: <span class="val">48px</span>;
+  <span class="prop">border-radius</span>: <span class="val">50%</span>;
+  <span class="prop">background</span>: <span class="val">#ffffff</span>;
+  <span class="prop">box-shadow</span>: <span class="val">0 2px 8px rgba(0,0,0,0.08)</span>;
+}
+        </div>
+
+        <h3>11.2 Pricing Card (Popular 变体)</h3>
+        <div class="code-block">
+<span class="tag">&lt;div</span> <span class="cls">class</span>=<span class="val">"pricing-card pricing-card-popular"</span><span class="tag">&gt;</span>
+  <span class="tag">&lt;div</span> <span class="cls">class</span>=<span class="val">"pricing-badge"</span><span class="tag">&gt;</span><span class="tag">&lt;span&gt;</span>Most Popular<span class="tag">&lt;/span&gt;&lt;/div&gt;</span>
+  <span class="tag">&lt;h3</span> <span class="cls">class</span>=<span class="val">"pricing-name"</span> <span class="prop">style</span>=<span class="val">"margin-top:28px"</span><span class="tag">&gt;</span>Professional<span class="tag">&lt;/h3&gt;</span>
+  <span class="tag">&lt;p</span> <span class="cls">class</span>=<span class="val">"pricing-desc-text"</span><span class="tag">&gt;</span>For growing teams...<span class="tag">&lt;/p&gt;</span>
+  <span class="tag">&lt;div</span> <span class="cls">class</span>=<span class="val">"pricing-price"</span><span class="tag">&gt;</span>
+    <span class="tag">&lt;span</span> <span class="cls">class</span>=<span class="val">"pricing-amount"</span><span class="tag">&gt;</span>$79<span class="tag">&lt;/span&gt;</span>
+    <span class="tag">&lt;span</span> <span class="cls">class</span>=<span class="val">"pricing-period"</span><span class="tag">&gt;</span>/month<span class="tag">&lt;/span&gt;</span>
+  <span class="tag">&lt;/div&gt;</span>
+  <span class="tag">&lt;ul</span> <span class="cls">class</span>=<span class="val">"pricing-features"</span><span class="tag">&gt;</span>...<span class="tag">&lt;/ul&gt;</span>
+  <span class="tag">&lt;a</span> <span class="cls">class</span>=<span class="val">"pricing-btn pricing-btn-white"</span><span class="tag">&gt;</span>Start free trial<span class="tag">&lt;/a&gt;</span>
+<span class="tag">&lt;/div&gt;</span>
+        </div>
+        <div class="code-block">
+<span class="comment">/* Popular 卡片用 flex 列布局 + align-self: start */</span>
+<span class="cls">.pricing-card-popular</span> {
+  <span class="prop">background</span>: <span class="val">linear-gradient(135deg, #3b82f6, #2563eb)</span>;
+  <span class="prop">align-self</span>: <span class="val">start</span>;  <span class="comment">/* 不与左右卡片等高 */</span>
+}
+<span class="comment">/* Grid 用 stretch 使 Starter/Enterprise 等高 */</span>
+<span class="cls">.pricing-grid</span> {
+  <span class="prop">display</span>: <span class="val">grid</span>;
+  <span class="prop">grid-template-columns</span>: <span class="val">repeat(3, 1fr)</span>;
+  <span class="prop">gap</span>: <span class="val">24px</span>;
+  <span class="prop">align-items</span>: <span class="val">stretch</span>;
+}
+        </div>
+
+        <h3>11.3 Frosted Glass Header</h3>
+        <div class="code-block">
+<span class="cls">.header</span> {
+  <span class="prop">position</span>: <span class="val">fixed</span>;
+  <span class="prop">top</span>: <span class="val">0</span>; <span class="prop">left</span>: <span class="val">0</span>; <span class="prop">right</span>: <span class="val">0</span>;
+  <span class="prop">z-index</span>: <span class="val">100</span>;
+  <span class="prop">background</span>: <span class="val">rgba(255, 255, 255, 0.8)</span>;
+  <span class="prop">backdrop-filter</span>: <span class="val">blur(12px)</span>;
+  <span class="prop">-webkit-backdrop-filter</span>: <span class="val">blur(12px)</span>;
+  <span class="prop">padding</span>: <span class="val">16px 0</span>;
+}
+        </div>
+
+        <h3>11.4 Blog Card</h3>
+        <div class="code-block">
+<span class="cls">.blog-card</span> {
+  <span class="prop">background</span>: <span class="val">#ffffff</span>;
+  <span class="prop">border-radius</span>: <span class="val">12px</span>;
+  <span class="prop">overflow</span>: <span class="val">hidden</span>;
+  <span class="prop">box-shadow</span>: <span class="val">0 1px 3px rgba(0,0,0,0.06)</span>;
+  <span class="prop">transition</span>: <span class="val">transform 0.2s ease, box-shadow 0.2s ease</span>;
+}
+<span class="cls">.blog-card:hover</span> {
+  <span class="prop">transform</span>: <span class="val">translateY(-4px)</span>;
+  <span class="prop">box-shadow</span>: <span class="val">0 8px 24px rgba(0,0,0,0.1)</span>;
+}
+<span class="cls">.blog-image</span> {
+  <span class="prop">width</span>: <span class="val">100%</span>; <span class="prop">height</span>: <span class="val">200px</span>;
+  <span class="prop">background</span>: <span class="val">#e5e7eb</span>;
+}
+<span class="cls">.blog-body</span> { <span class="prop">padding</span>: <span class="val">24px</span>; }
+        </div>
+
+        <h3>11.5 Section Header (通用模式)</h3>
+        <div class="code-block">
+<span class="tag">&lt;div</span> <span class="cls">class</span>=<span class="val">"section-header"</span><span class="tag">&gt;</span>
+  <span class="tag">&lt;h2</span> <span class="cls">class</span>=<span class="val">"section-title"</span><span class="tag">&gt;</span>标题<span class="tag">&lt;/h2&gt;</span>
+  <span class="tag">&lt;p</span> <span class="cls">class</span>=<span class="val">"section-subtitle"</span><span class="tag">&gt;</span>副标题<span class="tag">&lt;/p&gt;</span>
+<span class="tag">&lt;/div&gt;</span>
+
+<span class="comment">/* CSS */</span>
+<span class="cls">.section-header</span> { <span class="prop">text-align</span>: <span class="val">center</span>; <span class="prop">margin-bottom</span>: <span class="val">48px</span>; }
+<span class="cls">.section-title</span> {
+  <span class="prop">font-size</span>: <span class="val">36px</span>; <span class="prop">font-weight</span>: <span class="val">800</span>;
+  <span class="prop">color</span>: <span class="val">#1a202c</span>; <span class="prop">letter-spacing</span>: <span class="val">-0.02em</span>;
+  <span class="prop">margin-bottom</span>: <span class="val">12px</span>;
+}
+<span class="cls">.section-subtitle</span> {
+  <span class="prop">font-size</span>: <span class="val">18px</span>; <span class="prop">color</span>: <span class="val">#4a5568</span>; <span class="prop">font-weight</span>: <span class="val">400</span>;
+}
+        </div>
+
+        <h3>11.6 Footer 链接列</h3>
+        <div class="code-block">
+<span class="tag">&lt;div</span> <span class="cls">class</span>=<span class="val">"footer-col"</span><span class="tag">&gt;</span>
+  <span class="tag">&lt;h4</span> <span class="cls">class</span>=<span class="val">"footer-col-title"</span><span class="tag">&gt;</span>Product<span class="tag">&lt;/h4&gt;</span>
+  <span class="tag">&lt;ul</span> <span class="cls">class</span>=<span class="val">"footer-links"</span><span class="tag">&gt;</span>
+    <span class="tag">&lt;li&gt;&lt;a</span> <span class="cls">href</span>=<span class="val">"#"</span><span class="tag">&gt;</span>Features<span class="tag">&lt;/a&gt;&lt;/li&gt;</span>
+    <span class="tag">&lt;li&gt;&lt;a</span> <span class="cls">href</span>=<span class="val">"#"</span><span class="tag">&gt;</span>Pricing<span class="tag">&lt;/a&gt;&lt;/li&gt;</span>
+  <span class="tag">&lt;/ul&gt;</span>
+<span class="tag">&lt;/div&gt;</span>
+
+<span class="comment">/* 列标题: 蓝色小号大写 */</span>
+<span class="cls">.footer-col-title</span> {
+  <span class="prop">font-size</span>: <span class="val">14px</span>; <span class="prop">font-weight</span>: <span class="val">600</span>;
+  <span class="prop">color</span>: <span class="val">#3b82f6</span>; <span class="prop">text-transform</span>: <span class="val">uppercase</span>;
+  <span class="prop">letter-spacing</span>: <span class="val">0.05em</span>; <span class="prop">margin-bottom</span>: <span class="val">16px</span>;
+}
+<span class="cls">.footer-links a</span> {
+  <span class="prop">font-size</span>: <span class="val">14px</span>; <span class="prop">color</span>: <span class="val">#94a3b8</span>;
+  <span class="prop">transition</span>: <span class="val">color 0.2s ease</span>;
+}
+<span class="cls">.footer-links a:hover</span> { <span class="prop">color</span>: <span class="val">#ffffff</span>; }
+        </div>
+    </section>
+
+</main>
+</body>
+</html>
