@@ -83,6 +83,16 @@ journalctl -u traffic-keeper-agent -f
 | `MASTER_BASE_URL` | 公网地址（用于生成 agent 安装命令里的 `--server`） | — |
 | `MASTER_ADMIN_PASSWORD` | 面板登录密码 | — |
 
+## Cloudflare Tunnel（可选，国际链路 / 未备案优化）
+
+agent 在境外、master 在国内时，明文大上传容易被 GFW/链路 RST；master 未备案也无法用域名 443 HTTPS。面板顶栏「Cloudflare Tunnel」可一键开启：
+
+- master 自动安装 cloudflared（经 gh-proxy.org）并建立 quick tunnel，分配 `https://xxx.trycloudflare.com`。
+- agent 的**上传数据自动改走 tunnel**（加密、避开 RST，通常比直连快），**控制面（心跳/策略）仍走直连**——tunnel 即使抖动，agent 也不离线。
+- **无需域名、无需备案**：tunnel 是 master 主动出站建立，不开任何入站端口。
+
+面板点「Cloudflare Tunnel」→ 启用，看实时安装日志即可。size 建议 ≤ 5MB（国际链路带宽有限，单次约 100s 内传完最稳；想加流量优先调小 interval）。
+
 ## 开发
 
 ```bash
@@ -95,13 +105,18 @@ go run ./cmd/agent  # 本地跑 agent
 
 ## 功能与路线
 
-**MVP（已完成）**：Agent 注册 / 心跳 / 上传 · 面板（节点列表、累计上行、策略编辑、一键生成安装命令）· 一行安装 · Caddy HTTPS。
+**已完成（v0.3.0）**：
+- Agent 注册 / 心跳 / 上传（心跳、拉策略、上传三个独立 goroutine，上传再慢也不会被判离线）
+- 面板：节点列表、累计上行、策略编辑、一键生成安装命令
+- 密码修改（bcrypt 哈希）、节点 3 天上传日志、随时查看安装命令
+- 一行安装（install.sh，国内自动走 gh-proxy.org 镜像）、Caddy HTTPS 部署
+- **Cloudflare Tunnel**（可选：加密 agent 上传，绕开未备案 443 与 GFW RST）
 
 **V1 / V2 计划**：随机化（时间抖动 / 包大小 `[min,max]` 范围）、WebSocket 实时指令、分组批量、代理链（WARP / SOCKS5）、流量伪装、多目标上传。
 
 ## 状态
 
-✅ MVP 已完成并发版 —— 最新 [v0.1.1](https://github.com/PiPi-happy/traffic-keeper/releases/latest)。
+✅ 稳定运行中 —— 最新 [v0.3.0](https://github.com/PiPi-happy/traffic-keeper/releases/latest)。
 
 ## License
 
