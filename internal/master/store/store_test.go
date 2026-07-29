@@ -63,9 +63,12 @@ func TestStoreCRUD(t *testing.T) {
 		t.Fatalf("stats: %+v", st)
 	}
 
-	// touch + list
-	if err := s.TouchAgent(ctx, "a1", "1.2.3.4"); err != nil {
+	// touch + list (TouchAgent now also records version)
+	if err := s.TouchAgent(ctx, "a1", "1.2.3.4", "v9.9.9"); err != nil {
 		t.Fatalf("touch: %v", err)
+	}
+	if got, _ := s.GetAgent(ctx, "a1"); got.Version != "v9.9.9" {
+		t.Fatalf("version not stored: %q", got.Version)
 	}
 	if list, err := s.ListAgents(ctx); err != nil || len(list) != 1 {
 		t.Fatalf("list: %v len=%d", err, len(list))
@@ -148,5 +151,40 @@ func TestEvents(t *testing.T) {
 	s.DeleteAgent(ctx, "a1")
 	if got, _ := s.ListEvents(ctx, "a1", 0, 100); len(got) != 0 {
 		t.Fatalf("cascade delete failed: %d", len(got))
+	}
+}
+
+func TestPendingUpgradeAndPolicyRange(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.CreateAgent(ctx, Agent{ID: "a1", Name: "n", Token: "t", Secret: "x"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// pending upgrade set / clear
+	if err := s.SetPendingUpgrade(ctx, "a1", "v0.4.0"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetAgent(ctx, "a1"); got.PendingUpgrade != "v0.4.0" {
+		t.Fatalf("pending: %q", got.PendingUpgrade)
+	}
+	if err := s.ClearPendingUpgrade(ctx, "a1"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetAgent(ctx, "a1"); got.PendingUpgrade != "" {
+		t.Fatalf("pending not cleared: %q", got.PendingUpgrade)
+	}
+
+	// policy random range persists
+	if err := s.UpsertPolicy(ctx, Policy{AgentID: "a1", Enabled: true, IntervalSec: 60, SizeMB: 5, SizeMinMB: 2, SizeMaxMB: 8}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.GetPolicy(ctx, "a1")
+	if p.SizeMinMB != 2 || p.SizeMaxMB != 8 {
+		t.Fatalf("range not stored: %+v", p)
 	}
 }

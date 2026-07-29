@@ -38,7 +38,6 @@ type passwordReq struct {
 	New string `json:"new"`
 }
 
-// handleChangePassword verifies the old password then stores a new bcrypt hash.
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -73,7 +72,6 @@ type createNodeReq struct {
 	Name string `json:"name"`
 }
 
-// handleNodes handles GET (list) and POST (create) on /api/nodes.
 func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -98,24 +96,28 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 		st := stats[a.ID]
 		p, _ := s.store.GetPolicy(r.Context(), a.ID)
 		out = append(out, map[string]any{
-			"id":             a.ID,
-			"name":           a.Name,
-			"enabled":        a.Enabled,
-			"created_at":     a.CreatedAt,
-			"last_seen_at":   a.LastSeenAt,
-			"last_ip":        a.LastIP,
-			"online":         isOnline(a.LastSeenAt),
-			"bytes_up":       st.BytesUp,
-			"upload_count":   st.UploadCount,
-			"last_upload_at": st.LastUploadAt,
+			"id":              a.ID,
+			"name":            a.Name,
+			"enabled":         a.Enabled,
+			"created_at":      a.CreatedAt,
+			"last_seen_at":    a.LastSeenAt,
+			"last_ip":         a.LastIP,
+			"online":          isOnline(a.LastSeenAt),
+			"bytes_up":        st.BytesUp,
+			"upload_count":    st.UploadCount,
+			"last_upload_at":  st.LastUploadAt,
+			"version":         a.Version,
+			"pending_upgrade": a.PendingUpgrade,
 			"policy": map[string]any{
 				"enabled":      p.Enabled,
 				"interval_sec": p.IntervalSec,
 				"size_mb":      p.SizeMB,
+				"size_min_mb":  p.SizeMinMB,
+				"size_max_mb":  p.SizeMaxMB,
 			},
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"nodes": out})
+	writeJSON(w, http.StatusOK, map[string]any{"nodes": out, "latest_version": s.version})
 }
 
 func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
@@ -157,6 +159,8 @@ func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
 		s.handleNodeEvents(w, r)
 	case strings.HasSuffix(p, "/install-command"):
 		s.handleNodeInstallCmd(w, r)
+	case strings.HasSuffix(p, "/upgrade"):
+		s.handleNodeUpgrade(w, r)
 	case p != "" && !strings.Contains(p, "/"):
 		s.handleNodeDelete(w, r)
 	default:
@@ -178,6 +182,8 @@ func (s *Server) handleNodePolicy(w http.ResponseWriter, r *http.Request) {
 		Enabled     *bool `json:"enabled"`
 		IntervalSec *int  `json:"interval_sec"`
 		SizeMB      *int  `json:"size_mb"`
+		SizeMinMB   *int  `json:"size_min_mb"`
+		SizeMaxMB   *int  `json:"size_max_mb"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -205,6 +211,24 @@ func (s *Server) handleNodePolicy(w http.ResponseWriter, r *http.Request) {
 		}
 		p.SizeMB = *body.SizeMB
 	}
+	if body.SizeMinMB != nil {
+		if *body.SizeMinMB < 0 {
+			http.Error(w, "size_min_mb must be >= 0", http.StatusBadRequest)
+			return
+		}
+		p.SizeMinMB = *body.SizeMinMB
+	}
+	if body.SizeMaxMB != nil {
+		if *body.SizeMaxMB < 0 {
+			http.Error(w, "size_max_mb must be >= 0", http.StatusBadRequest)
+			return
+		}
+		p.SizeMaxMB = *body.SizeMaxMB
+	}
+	if p.SizeMaxMB > 0 && p.SizeMaxMB < p.SizeMinMB {
+		http.Error(w, "size_max_mb must be >= size_min_mb", http.StatusBadRequest)
+		return
+	}
 	if err := s.store.UpsertPolicy(r.Context(), p); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -213,10 +237,12 @@ func (s *Server) handleNodePolicy(w http.ResponseWriter, r *http.Request) {
 		"enabled":      p.Enabled,
 		"interval_sec": p.IntervalSec,
 		"size_mb":      p.SizeMB,
+		"size_min_mb":  p.SizeMinMB,
+		"size_max_mb":  p.SizeMaxMB,
 	})
 }
 
-// handleNodeEvents returns upload events for the last 3 days, newest first.
+// handleNodeEvents returns upload events for the last 24h, newest first.
 func (s *Server) handleNodeEvents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -227,8 +253,8 @@ func (s *Server) handleNodeEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	since := time.Now().Unix() - 3*24*3600
-	events, err := s.store.ListEvents(r.Context(), id, since, 1000)
+	since := time.Now().Unix() - 24*3600
+	events, err := s.store.ListEvents(r.Context(), id, since, 3000)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -236,10 +262,11 @@ func (s *Server) handleNodeEvents(w http.ResponseWriter, r *http.Request) {
 	out := make([]map[string]any, 0, len(events))
 	for _, e := range events {
 		out = append(out, map[string]any{
-			"ts":     e.Ts,
-			"bytes":  e.Bytes,
-			"status": e.Status,
-			"error":  e.Error,
+			"ts":          e.Ts,
+			"bytes":       e.Bytes,
+			"status":      e.Status,
+			"error":       e.Error,
+			"duration_ms": e.DurationMs,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"events": out})
@@ -262,6 +289,28 @@ func (s *Server) handleNodeInstallCmd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"install_command": s.installCommand(agent.Token)})
+}
+
+// handleNodeUpgrade marks an agent to self-upgrade to the master's version.
+func (s *Server) handleNodeUpgrade(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/nodes/"), "/upgrade")
+	if id == "" || strings.Contains(id, "/") {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if s.version == "" || s.version == "dev" {
+		http.Error(w, "master version unknown (dev build)", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.SetPendingUpgrade(r.Context(), id, s.version); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "target": s.version})
 }
 
 func (s *Server) handleNodeDelete(w http.ResponseWriter, r *http.Request) {

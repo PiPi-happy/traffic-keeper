@@ -61,15 +61,27 @@ func (s *Server) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if _, ok := s.authenticateAgent(r, id); !ok {
+	agent, ok := s.authenticateAgent(r, id)
+	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if err := s.store.TouchAgent(r.Context(), id, clientIP(r)); err != nil {
+	version := r.Header.Get("X-Agent-Version")
+	if err := s.store.TouchAgent(r.Context(), id, clientIP(r), version); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	resp := map[string]any{"ok": true}
+	// Self-upgrade directive: if a target is pending and the agent isn't on it
+	// yet, tell it; if it already is, clear the pending flag.
+	if agent.PendingUpgrade != "" {
+		if version != "" && version == agent.PendingUpgrade {
+			_ = s.store.ClearPendingUpgrade(r.Context(), id)
+		} else {
+			resp["upgrade_to"] = agent.PendingUpgrade
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleAgentPolicy(w http.ResponseWriter, r *http.Request) {
@@ -95,6 +107,8 @@ func (s *Server) handleAgentPolicy(w http.ResponseWriter, r *http.Request) {
 		"enabled":      p.Enabled,
 		"interval_sec": p.IntervalSec,
 		"size_mb":      p.SizeMB,
-		"upload_url":   s.tunnel.UploadURL(), // when tunnel is up, agents upload through it
+		"size_min_mb":  p.SizeMinMB,
+		"size_max_mb":  p.SizeMaxMB,
+		"upload_url":   s.tunnel.UploadURL(), // tunnel base when up
 	})
 }

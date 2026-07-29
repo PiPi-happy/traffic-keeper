@@ -23,6 +23,9 @@ import (
 	"github.com/PiPi-happy/traffic-keeper/internal/agent"
 )
 
+// version is injected at build time via -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
 	var (
 		server = flag.String("server", envOr("TK_SERVER", ""), "master base URL")
@@ -34,7 +37,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	a := agent.New(agent.Config{Server: *server, Token: *token, State: *state})
+	a := agent.New(agent.Config{Server: *server, Token: *token, State: *state, Version: version})
 	if err := a.Run(ctx); err != nil {
 		log.Fatalf("agent: %v", err)
 	}

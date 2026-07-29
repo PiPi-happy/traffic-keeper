@@ -6,11 +6,13 @@ web:
 	rm -rf internal/web/dist/assets
 	cp -r web/dist/. internal/web/dist/
 
+VERSION ?= $(shell git describe --tags 2>/dev/null || echo dev)
+
 build-master: web
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/traffic-keeper-master ./cmd/master
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o bin/traffic-keeper-master ./cmd/master
 
 build-agent:
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/traffic-keeper-agent ./cmd/agent
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o bin/traffic-keeper-agent ./cmd/agent
 
 build: build-master build-agent
 

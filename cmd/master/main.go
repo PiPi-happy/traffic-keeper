@@ -24,6 +24,10 @@ import (
 	"github.com/PiPi-happy/traffic-keeper/internal/master/store"
 )
 
+// version is injected at build time via -ldflags "-X main.version=...". It is
+// used as the agent self-upgrade target (master and agent ship the same tag).
+var version = "dev"
+
 func main() {
 	addr := envOr("MASTER_ADDR", ":8080")
 	dbPath := envOr("MASTER_DB", "traffic-keeper.db")
@@ -37,6 +41,7 @@ func main() {
 	srv := master.NewServer(st,
 		master.WithBaseURL(envOr("MASTER_BASE_URL", "")),
 		master.WithAdminPassword(envOr("MASTER_ADMIN_PASSWORD", "")),
+		master.WithVersion(version),
 	)
 	if err := srv.InitAdminPassword(context.Background(), envOr("MASTER_ADMIN_PASSWORD", "")); err != nil {
 		log.Fatalf("init admin password: %v", err)

@@ -22,6 +22,7 @@ type Server struct {
 	sessions    *sessionStore
 	baseURL     string // public base URL used to render install commands
 	tunnel      *TunnelManager
+	version     string // master/agent release version (for self-upgrade target)
 }
 
 // Option configures a Server.
@@ -36,6 +37,11 @@ func WithAdminPassword(p string) Option {
 // WithBaseURL sets the public base URL used when generating agent install commands.
 func WithBaseURL(u string) Option {
 	return func(s *Server) { s.baseURL = strings.TrimRight(u, "/") }
+}
+
+// WithVersion sets the release version (used as the agent self-upgrade target).
+func WithVersion(v string) Option {
+	return func(s *Server) { s.version = v }
 }
 
 // NewServer creates a master server backed by the given store.

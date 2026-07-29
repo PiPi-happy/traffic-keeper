@@ -8,9 +8,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	mrand "math/rand/v2"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -23,11 +26,15 @@ const (
 	defaultTimeout     = 5 * time.Minute
 )
 
+// upgradeRepo is the GitHub repo releases are published to.
+const upgradeRepo = "PiPi-happy/traffic-keeper"
+
 // Config configures the agent.
 type Config struct {
-	Server string // master base URL, e.g. https://master.example.com
-	Token  string // one-time install token (first-run registration only)
-	State  string // path to the persisted credentials file
+	Server  string
+	Token   string
+	State   string
+	Version string // build version, reported to master and used in self-upgrade checks
 }
 
 // policy mirrors the master policy the agent pulls.
@@ -35,7 +42,9 @@ type policy struct {
 	Enabled     bool   `json:"enabled"`
 	IntervalSec int    `json:"interval_sec"`
 	SizeMB      int    `json:"size_mb"`
-	UploadURL   string `json:"upload_url"` // when set, uploads go through this base (e.g. the CF tunnel)
+	SizeMinMB   int    `json:"size_min_mb"`
+	SizeMaxMB   int    `json:"size_max_mb"`
+	UploadURL   string `json:"upload_url"`
 }
 
 // state is the persisted credential pair.
@@ -50,11 +59,12 @@ type Agent struct {
 	client *http.Client
 	state  state
 
-	mu             sync.Mutex // guards policy + the *last** timestamps
+	mu             sync.Mutex
 	policy         policy
 	lastHeartbeat  time.Time
 	lastPolicyPull time.Time
 	lastUpload     time.Time
+	upgrading      bool
 }
 
 // New creates an agent.
@@ -62,13 +72,12 @@ func New(cfg Config) *Agent {
 	return &Agent{
 		cfg:    cfg,
 		client: &http.Client{Timeout: defaultTimeout},
-		policy: policy{Enabled: true, IntervalSec: 1800, SizeMB: 50}, // defaults until first pull
+		policy: policy{Enabled: true, IntervalSec: 1800, SizeMB: 50},
 	}
 }
 
 // Run registers (if needed) then runs heartbeat / policy / upload each in its
-// own goroutine. A slow upload can never starve heartbeats, so the master
-// won't mark the agent offline while a big upload is in flight.
+// own goroutine so a slow upload can never starve heartbeats.
 func (a *Agent) Run(ctx context.Context) error {
 	if a.cfg.Server == "" {
 		return fmt.Errorf("server URL is required")
@@ -184,17 +193,33 @@ func (a *Agent) heartbeat(ctx context.Context) {
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+a.state.Secret)
+	if a.cfg.Version != "" {
+		req.Header.Set("X-Agent-Version", a.cfg.Version)
+	}
 	resp, err := a.client.Do(req)
 	if err != nil {
 		log.Printf("heartbeat: %v", err)
 		return
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	var hr struct {
+		OK        bool   `json:"ok"`
+		UpgradeTo string `json:"upgrade_to"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&hr)
 	if resp.StatusCode == http.StatusOK {
 		a.mu.Lock()
 		a.lastHeartbeat = time.Now()
 		a.mu.Unlock()
+		// Master told us to self-upgrade to a newer version.
+		if hr.UpgradeTo != "" && hr.UpgradeTo != a.cfg.Version {
+			a.mu.Lock()
+			already := a.upgrading
+			a.mu.Unlock()
+			if !already {
+				go a.selfUpgrade(hr.UpgradeTo)
+			}
+		}
 	} else {
 		log.Printf("heartbeat: status %d", resp.StatusCode)
 	}
@@ -233,21 +258,22 @@ func (a *Agent) upload(ctx context.Context) {
 	p := a.policy
 	a.mu.Unlock()
 
-	// Data plane goes through the tunnel URL when the master provides one;
-	// otherwise fall back to the configured server. The control plane
-	// (register/heartbeat/policy) always uses cfg.Server so the agent can still
-	// reach the master before any tunnel exists.
+	// Randomize size within [min,max] when a range is configured.
+	sizeMB := p.SizeMB
+	if p.SizeMaxMB > p.SizeMinMB {
+		sizeMB = p.SizeMinMB + mrand.IntN(p.SizeMaxMB-p.SizeMinMB+1)
+	}
+	if sizeMB <= 0 {
+		sizeMB = 1
+	}
+
+	// Data plane goes through the tunnel URL when provided; else --server.
 	base := p.UploadURL
 	if base == "" {
 		base = a.cfg.Server
 	}
 
-	n := int64(p.SizeMB) * 1024 * 1024
-	if n <= 0 {
-		n = 1 << 20
-	}
-	// Stream incompressible random data straight from /dev/urandom; never hold
-	// the whole payload in memory.
+	n := int64(sizeMB) * 1024 * 1024
 	url := strings.TrimRight(base, "/") + "/upload/" + a.state.AgentID
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, io.LimitReader(rand.Reader, n))
 	if err != nil {
@@ -270,9 +296,89 @@ func (a *Agent) upload(ctx context.Context) {
 		a.mu.Lock()
 		a.lastUpload = time.Now()
 		a.mu.Unlock()
-		log.Printf("uploaded %d bytes in %s", n, time.Since(start).Round(time.Millisecond))
+		log.Printf("uploaded %d bytes (%dMB) in %s", n, sizeMB, time.Since(start).Round(time.Millisecond))
 	} else {
 		log.Printf("upload: status %d", resp.StatusCode)
+	}
+}
+
+// selfUpgrade downloads the agent binary for target version (via gh-proxy.org),
+// sanity-checks its size, atomically replaces the running binary, and restarts
+// the systemd service.
+func (a *Agent) selfUpgrade(target string) {
+	a.mu.Lock()
+	if a.upgrading {
+		a.mu.Unlock()
+		return
+	}
+	a.upgrading = true
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		a.upgrading = false
+		a.mu.Unlock()
+	}()
+
+	exe, err := os.Executable()
+	if err != nil {
+		log.Printf("self-upgrade: %v", err)
+		return
+	}
+	arch := "amd64"
+	if runtime.GOARCH == "arm64" {
+		arch = "arm64"
+	}
+	url := fmt.Sprintf("https://gh-proxy.org/https://github.com/%s/releases/download/%s/traffic-keeper-agent-linux-%s", upgradeRepo, target, arch)
+	log.Printf("self-upgrade → %s: downloading %s", target, url)
+
+	tmp := exe + ".new"
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		log.Printf("self-upgrade: %v", err)
+		return
+	}
+	resp, err := a.client.Do(req)
+	if err != nil {
+		log.Printf("self-upgrade download: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("self-upgrade: download status %d", resp.StatusCode)
+		return
+	}
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		log.Printf("self-upgrade: %v", err)
+		return
+	}
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		log.Printf("self-upgrade write: %v", err)
+		return
+	}
+	_ = f.Close()
+
+	// Sanity check: a real agent binary is at least 1 MB.
+	if info, err := os.Stat(tmp); err != nil || info.Size() < 1<<20 {
+		_ = os.Remove(tmp)
+		log.Printf("self-upgrade: downloaded file too small, aborted")
+		return
+	}
+
+	if err := os.Rename(tmp, exe); err != nil {
+		_ = os.Remove(tmp)
+		log.Printf("self-upgrade replace: %v", err)
+		return
+	}
+	log.Printf("self-upgrade: binary replaced, restarting service...")
+
+	// Best effort: ask systemd to restart us. If that fails, exit so systemd's
+	// Restart=always picks up the new binary.
+	if err := exec.Command("systemctl", "restart", "traffic-keeper-agent").Start(); err != nil {
+		log.Printf("self-upgrade: systemctl restart failed (%v); exiting for restart", err)
+		os.Exit(0)
 	}
 }
 

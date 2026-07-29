@@ -37,20 +37,24 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) init() error {
-	_, err := s.db.Exec(schemaSQL)
-	return err
+	if _, err := s.db.Exec(schemaSQL); err != nil {
+		return err
+	}
+	return s.migrate()
 }
 
 const schemaSQL = `
 CREATE TABLE IF NOT EXISTS agents (
-  id           TEXT PRIMARY KEY,
-  name         TEXT NOT NULL,
-  token        TEXT NOT NULL UNIQUE,
-  secret       TEXT NOT NULL,
-  enabled      INTEGER NOT NULL DEFAULT 1,
-  created_at   INTEGER NOT NULL,
-  last_seen_at INTEGER NOT NULL DEFAULT 0,
-  last_ip      TEXT NOT NULL DEFAULT ''
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  token           TEXT NOT NULL UNIQUE,
+  secret          TEXT NOT NULL,
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  created_at      INTEGER NOT NULL,
+  last_seen_at    INTEGER NOT NULL DEFAULT 0,
+  last_ip         TEXT NOT NULL DEFAULT '',
+  version         TEXT NOT NULL DEFAULT '',
+  pending_upgrade TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS policies (
@@ -58,6 +62,8 @@ CREATE TABLE IF NOT EXISTS policies (
   enabled      INTEGER NOT NULL DEFAULT 1,
   interval_sec INTEGER NOT NULL DEFAULT 1800,
   size_mb      INTEGER NOT NULL DEFAULT 50,
+  size_min_mb  INTEGER NOT NULL DEFAULT 0,
+  size_max_mb  INTEGER NOT NULL DEFAULT 0,
   updated_at   INTEGER NOT NULL
 );
 
@@ -74,12 +80,13 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 CREATE TABLE IF NOT EXISTS upload_events (
-  id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-  ts       INTEGER NOT NULL,
-  bytes    INTEGER NOT NULL,
-  status   TEXT NOT NULL, -- 'ok' or 'fail'
-  error    TEXT NOT NULL DEFAULT ''
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id    TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  ts          INTEGER NOT NULL,
+  bytes       INTEGER NOT NULL,
+  status      TEXT NOT NULL, -- 'ok' or 'fail'
+  error       TEXT NOT NULL DEFAULT '',
+  duration_ms INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_upload_events_agent_ts ON upload_events(agent_id, ts);
 `

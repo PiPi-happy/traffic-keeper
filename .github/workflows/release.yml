@@ -41,15 +41,16 @@ jobs:
           rm -rf ../internal/web/dist/assets
           cp -r dist/. ../internal/web/dist/
 
-      - name: Build binaries (CGO disabled, static)
+      - name: Build binaries (CGO disabled, static, version from tag)
         env:
           CGO_ENABLED: '0'
           GOOS: linux
           GOARCH: ${{ matrix.arch }}
         run: |
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w" -o "dist/traffic-keeper-master-linux-${{ matrix.arch }}" ./cmd/master
-          go build -trimpath -ldflags "-s -w" -o "dist/traffic-keeper-agent-linux-${{ matrix.arch }}" ./cmd/agent
+          VER=${GITHUB_REF_NAME}
+          go build -trimpath -ldflags "-s -w -X main.version=${VER}" -o "dist/traffic-keeper-master-linux-${{ matrix.arch }}" ./cmd/master
+          go build -trimpath -ldflags "-s -w -X main.version=${VER}" -o "dist/traffic-keeper-agent-linux-${{ matrix.arch }}" ./cmd/agent
 
       - uses: actions/upload-artifact@v4
         with:

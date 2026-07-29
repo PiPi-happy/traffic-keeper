@@ -26,7 +26,7 @@ export async function login(password) {
 
 export async function listNodes() {
   const { data } = await api.get('/api/nodes')
-  return data.nodes
+  return data // { nodes, latest_version }
 }
 
 export async function createNode(name) {
@@ -55,6 +55,10 @@ export async function getEvents(id) {
 export async function getInstallCommand(id) {
   const { data } = await api.get(`/api/nodes/${id}/install-command`)
   return data.install_command
+}
+
+export async function upgradeNode(id) {
+  await api.post(`/api/nodes/${id}/upgrade`)
 }
 
 export async function getTunnel() {

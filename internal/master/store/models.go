@@ -4,14 +4,16 @@ import "time"
 
 // Agent is a registered sender node.
 type Agent struct {
-	ID         string
-	Name       string
-	Token      string // one-time token embedded in the install command
-	Secret     string // secret the agent uses to authenticate API calls
-	Enabled    bool
-	CreatedAt  int64 // unix seconds
-	LastSeenAt int64 // unix seconds
-	LastIP     string
+	ID             string
+	Name           string
+	Token          string // one-time token embedded in the install command
+	Secret         string // secret the agent uses to authenticate API calls
+	Enabled        bool
+	CreatedAt      int64 // unix seconds
+	LastSeenAt     int64 // unix seconds
+	LastIP         string
+	Version        string // agent-reported version
+	PendingUpgrade string // target version the agent should self-upgrade to ("" = none)
 }
 
 // Policy is the per-agent upload schedule.
@@ -19,7 +21,9 @@ type Policy struct {
 	AgentID     string
 	Enabled     bool
 	IntervalSec int
-	SizeMB      int
+	SizeMB      int // fixed size when range is unused
+	SizeMinMB   int // when SizeMaxMB>SizeMinMB, agent randomizes in [min,max]
+	SizeMaxMB   int
 	UpdatedAt   int64
 }
 
