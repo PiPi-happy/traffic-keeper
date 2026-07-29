@@ -54,7 +54,9 @@ CREATE TABLE IF NOT EXISTS agents (
   last_seen_at    INTEGER NOT NULL DEFAULT 0,
   last_ip         TEXT NOT NULL DEFAULT '',
   version         TEXT NOT NULL DEFAULT '',
-  pending_upgrade TEXT NOT NULL DEFAULT ''
+  pending_upgrade TEXT NOT NULL DEFAULT '',
+  country         TEXT NOT NULL DEFAULT '',
+  arch            TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS policies (

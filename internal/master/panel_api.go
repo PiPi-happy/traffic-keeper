@@ -1,7 +1,9 @@
 package master
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -11,6 +13,25 @@ import (
 
 // installScriptURL is the public raw URL of the agent installer.
 const installScriptURL = "https://raw.githubusercontent.com/PiPi-happy/traffic-keeper/main/deploy/install.sh"
+
+// githubRepo is the releases source for agent self-upgrade downloads.
+const githubRepo = "PiPi-happy/traffic-keeper"
+
+// buildDownloadURL returns the agent binary URL for a self-upgrade, routing
+// through the configured gh_proxy when the agent is in CN (GitHub releases are
+// unreachable from CN networks).
+func (s *Server) buildDownloadURL(ctx context.Context, target, arch, country string) string {
+	if arch == "" {
+		arch = "amd64"
+	}
+	u := fmt.Sprintf("https://github.com/%s/releases/download/%s/traffic-keeper-agent-linux-%s", githubRepo, target, arch)
+	if country == "CN" {
+		if proxy, err := s.store.GetSetting(ctx, settingGhProxy); err == nil && proxy != "" {
+			u = strings.TrimRight(proxy, "/") + "/" + u
+		}
+	}
+	return u
+}
 
 type loginReq struct {
 	Password string `json:"password"`
@@ -108,6 +129,8 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 			"last_upload_at":  st.LastUploadAt,
 			"version":         a.Version,
 			"pending_upgrade": a.PendingUpgrade,
+			"country":         a.Country,
+			"arch":            a.Arch,
 			"policy": map[string]any{
 				"enabled":      p.Enabled,
 				"interval_sec": p.IntervalSec,
@@ -336,5 +359,38 @@ func (s *Server) installCommand(token string) string {
 	if server == "" {
 		server = "<MASTER_URL>"
 	}
-	return "curl -fsSL " + installScriptURL + " | bash -s -- --token " + token + " --server " + server
+	cmd := "curl -fsSL " + installScriptURL + " | bash -s -- --token " + token + " --server " + server
+	if proxy, err := s.store.GetSetting(context.Background(), settingGhProxy); err == nil && proxy != "" {
+		cmd += " --gh-proxy " + strings.TrimRight(proxy, "/")
+	}
+	return cmd
+}
+
+// handleGhProxy: GET the configured GitHub proxy; POST to set/clear it.
+func (s *Server) handleGhProxy(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		v, _ := s.store.GetSetting(r.Context(), settingGhProxy)
+		writeJSON(w, http.StatusOK, map[string]any{"gh_proxy": v})
+	case http.MethodPost:
+		var body struct {
+			GhProxy string `json:"gh_proxy"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		proxy := strings.TrimSpace(body.GhProxy)
+		if proxy != "" && !strings.HasPrefix(proxy, "http://") && !strings.HasPrefix(proxy, "https://") {
+			http.Error(w, "gh_proxy must start with http:// or https://", http.StatusBadRequest)
+			return
+		}
+		if err := s.store.SetSetting(r.Context(), settingGhProxy, proxy); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "gh_proxy": proxy})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }

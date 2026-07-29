@@ -73,3 +73,12 @@ export async function enableTunnel() {
 export async function disableTunnel() {
   await api.post('/api/tunnel/disable')
 }
+
+export async function getGhProxy() {
+  const { data } = await api.get('/api/gh-proxy')
+  return data.gh_proxy
+}
+
+export async function setGhProxy(proxy) {
+  await api.post('/api/gh-proxy', { gh_proxy: proxy })
+}

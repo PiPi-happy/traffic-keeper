@@ -65,6 +65,7 @@ type Agent struct {
 	lastPolicyPull time.Time
 	lastUpload     time.Time
 	upgrading      bool
+	country        string // detected ISO country code (best effort)
 }
 
 // New creates an agent.
@@ -84,6 +85,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	if err := a.loadState(); err != nil {
 		return fmt.Errorf("load state: %w", err)
+	}
+	a.country = detectCountry()
+	if a.country != "" {
+		log.Printf("detected country: %s", a.country)
 	}
 	if a.state.AgentID == "" {
 		if a.cfg.Token == "" {
@@ -196,6 +201,8 @@ func (a *Agent) heartbeat(ctx context.Context) {
 	if a.cfg.Version != "" {
 		req.Header.Set("X-Agent-Version", a.cfg.Version)
 	}
+	req.Header.Set("X-Agent-Country", a.country)
+	req.Header.Set("X-Agent-Arch", runtime.GOARCH)
 	resp, err := a.client.Do(req)
 	if err != nil {
 		log.Printf("heartbeat: %v", err)
@@ -203,8 +210,9 @@ func (a *Agent) heartbeat(ctx context.Context) {
 	}
 	defer resp.Body.Close()
 	var hr struct {
-		OK        bool   `json:"ok"`
-		UpgradeTo string `json:"upgrade_to"`
+		OK          bool   `json:"ok"`
+		UpgradeTo   string `json:"upgrade_to"`
+		DownloadURL string `json:"download_url"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&hr)
 	if resp.StatusCode == http.StatusOK {
@@ -217,7 +225,7 @@ func (a *Agent) heartbeat(ctx context.Context) {
 			already := a.upgrading
 			a.mu.Unlock()
 			if !already {
-				go a.selfUpgrade(hr.UpgradeTo)
+				go a.selfUpgrade(hr.UpgradeTo, hr.DownloadURL)
 			}
 		}
 	} else {
@@ -302,10 +310,11 @@ func (a *Agent) upload(ctx context.Context) {
 	}
 }
 
-// selfUpgrade downloads the agent binary for target version (via gh-proxy.org),
-// sanity-checks its size, atomically replaces the running binary, and restarts
-// the systemd service.
-func (a *Agent) selfUpgrade(target string) {
+// selfUpgrade downloads the agent binary for target version, sanity-checks its
+// size, atomically replaces the running binary, and restarts the systemd
+// service. downloadURL is provided by the master (region-aware); if empty, the
+// agent falls back to a default gh-proxy.org URL.
+func (a *Agent) selfUpgrade(target, downloadURL string) {
 	a.mu.Lock()
 	if a.upgrading {
 		a.mu.Unlock()
@@ -324,15 +333,17 @@ func (a *Agent) selfUpgrade(target string) {
 		log.Printf("self-upgrade: %v", err)
 		return
 	}
-	arch := "amd64"
-	if runtime.GOARCH == "arm64" {
-		arch = "arm64"
+	if downloadURL == "" {
+		arch := "amd64"
+		if runtime.GOARCH == "arm64" {
+			arch = "arm64"
+		}
+		downloadURL = fmt.Sprintf("https://gh-proxy.org/https://github.com/%s/releases/download/%s/traffic-keeper-agent-linux-%s", upgradeRepo, target, arch)
 	}
-	url := fmt.Sprintf("https://gh-proxy.org/https://github.com/%s/releases/download/%s/traffic-keeper-agent-linux-%s", upgradeRepo, target, arch)
-	log.Printf("self-upgrade → %s: downloading %s", target, url)
+	log.Printf("self-upgrade → %s: downloading %s", target, downloadURL)
 
 	tmp := exe + ".new"
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, downloadURL, nil)
 	if err != nil {
 		log.Printf("self-upgrade: %v", err)
 		return
@@ -380,6 +391,25 @@ func (a *Agent) selfUpgrade(target string) {
 		log.Printf("self-upgrade: systemctl restart failed (%v); exiting for restart", err)
 		os.Exit(0)
 	}
+}
+
+// detectCountry returns the agent's ISO country code via ip-api.com (best
+// effort; "" on any failure). Used so the master can decide whether to route
+// the self-upgrade download through a GitHub proxy.
+func detectCountry() string {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://ip-api.com/json/?fields=countryCode")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var d struct {
+		CountryCode string `json:"countryCode"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+		return ""
+	}
+	return strings.ToUpper(strings.TrimSpace(d.CountryCode))
 }
 
 func (a *Agent) loadState() error {

@@ -19,6 +19,7 @@ const (
 	sessionTTL           = 24 * time.Hour
 	settingAdminPassword = "admin_password_hash"
 	settingTunnelEnabled = "tunnel_enabled"
+	settingGhProxy       = "gh_proxy"
 )
 
 func randomHex(n int) string {

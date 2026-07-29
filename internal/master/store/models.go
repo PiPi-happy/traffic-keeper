@@ -14,6 +14,8 @@ type Agent struct {
 	LastIP         string
 	Version        string // agent-reported version
 	PendingUpgrade string // target version the agent should self-upgrade to ("" = none)
+	Country        string // agent-reported ISO country code (e.g. CN, US)
+	Arch           string // agent-reported GOARCH (amd64 / arm64)
 }
 
 // Policy is the per-agent upload schedule.

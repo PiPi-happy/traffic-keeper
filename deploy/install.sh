@@ -37,6 +37,7 @@ while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--token) TOKEN="${2:-}"; shift 2 ;;
 		--server) SERVER="${2:-}"; shift 2 ;;
+		--gh-proxy) GHPROXY="${2:-}"; shift 2 ;;
 		-h | --help) usage; exit 0 ;;
 		*) echo "error: unknown argument: $1" >&2; usage >&2; exit 1 ;;
 	esac
@@ -68,7 +69,7 @@ esac
 # --- download ----------------------------------------------------------------
 # GitHub release downloads are often unreachable from CN networks; route through
 # the gh-proxy.org mirror by default. Override with GHPROXY=<url> (empty = direct).
-GHPROXY="${GHPROXY:-https://gh-proxy.org}"
+GHPROXY="${GHPROXY-https://gh-proxy.org}"
 URL="https://github.com/${REPO}/releases/latest/download/traffic-keeper-agent-linux-${ARCH}"
 [ -n "$GHPROXY" ] && URL="${GHPROXY}/${URL}"
 echo "Downloading traffic-keeper-agent (linux/${ARCH})..."
@@ -102,7 +103,7 @@ RestartSec=10
 # Hardening
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=${STATE_DIR}
+ReadWritePaths=${STATE_DIR} ${INSTALL_DIR}
 PrivateTmp=yes
 
 [Install]

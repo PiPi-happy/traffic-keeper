@@ -64,7 +64,7 @@ func TestStoreCRUD(t *testing.T) {
 	}
 
 	// touch + list (TouchAgent now also records version)
-	if err := s.TouchAgent(ctx, "a1", "1.2.3.4", "v9.9.9"); err != nil {
+	if err := s.TouchAgent(ctx, "a1", "1.2.3.4", "v9.9.9", "CN", "amd64"); err != nil {
 		t.Fatalf("touch: %v", err)
 	}
 	if got, _ := s.GetAgent(ctx, "a1"); got.Version != "v9.9.9" {

@@ -66,6 +66,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/nodes/", s.requireAdmin(s.handleNode)) // node-specific dispatcher
 	s.mux.HandleFunc("/api/tunnel", s.requireAdmin(s.handleTunnel))
 	s.mux.HandleFunc("/api/tunnel/disable", s.requireAdmin(s.handleTunnelDisable))
+	s.mux.HandleFunc("/api/gh-proxy", s.requireAdmin(s.handleGhProxy))
 
 	// SPA frontend (embedded). More specific routes above take precedence.
 	s.mux.Handle("/", web.Handler())

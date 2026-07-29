@@ -14,12 +14,12 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
-const agentCols = "id, name, token, secret, enabled, created_at, last_seen_at, last_ip, version, pending_upgrade"
+const agentCols = "id, name, token, secret, enabled, created_at, last_seen_at, last_ip, version, pending_upgrade, country, arch"
 
 func scanAgent(row scanner) (Agent, error) {
 	var a Agent
 	var enabled int64
-	err := row.Scan(&a.ID, &a.Name, &a.Token, &a.Secret, &enabled, &a.CreatedAt, &a.LastSeenAt, &a.LastIP, &a.Version, &a.PendingUpgrade)
+	err := row.Scan(&a.ID, &a.Name, &a.Token, &a.Secret, &enabled, &a.CreatedAt, &a.LastSeenAt, &a.LastIP, &a.Version, &a.PendingUpgrade, &a.Country, &a.Arch)
 	a.Enabled = enabled != 0
 	return a, err
 }
@@ -37,8 +37,8 @@ func (s *Store) CreateAgent(ctx context.Context, a Agent) error {
 	defer tx.Rollback() //nolint:errcheck
 
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO agents (id, name, token, secret, enabled, created_at, last_seen_at, last_ip, version, pending_upgrade)
-		 VALUES (?,?,?,?,1,?,0,'','','')`,
+		`INSERT INTO agents (id, name, token, secret, enabled, created_at, last_seen_at, last_ip, version, pending_upgrade, country, arch)
+		 VALUES (?,?,?,?,1,?,0,'','','','','')`,
 		a.ID, a.Name, a.Token, a.Secret, a.CreatedAt); err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}
@@ -92,10 +92,10 @@ func (s *Store) ListAgents(ctx context.Context) ([]Agent, error) {
 	return agents, rows.Err()
 }
 
-// TouchAgent updates the agent's last-seen timestamp, source IP, and version.
-func (s *Store) TouchAgent(ctx context.Context, id, ip, version string) error {
+// TouchAgent updates the agent's last-seen timestamp, source IP, version, country, arch.
+func (s *Store) TouchAgent(ctx context.Context, id, ip, version, country, arch string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE agents SET last_seen_at=?, last_ip=?, version=? WHERE id=?`, now(), ip, version, id)
+		`UPDATE agents SET last_seen_at=?, last_ip=?, version=?, country=?, arch=? WHERE id=?`, now(), ip, version, country, arch, id)
 	return err
 }
 

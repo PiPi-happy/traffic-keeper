@@ -13,6 +13,8 @@ func (s *Store) migrate() error {
 	add := []struct{ table, col, decl string }{
 		{"agents", "version", "TEXT NOT NULL DEFAULT ''"},
 		{"agents", "pending_upgrade", "TEXT NOT NULL DEFAULT ''"},
+		{"agents", "country", "TEXT NOT NULL DEFAULT ''"},
+		{"agents", "arch", "TEXT NOT NULL DEFAULT ''"},
 		{"policies", "size_min_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"policies", "size_max_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"upload_events", "duration_ms", "INTEGER NOT NULL DEFAULT 0"},

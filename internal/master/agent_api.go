@@ -67,18 +67,21 @@ func (s *Server) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	version := r.Header.Get("X-Agent-Version")
-	if err := s.store.TouchAgent(r.Context(), id, clientIP(r), version); err != nil {
+	country := r.Header.Get("X-Agent-Country")
+	arch := r.Header.Get("X-Agent-Arch")
+	if err := s.store.TouchAgent(r.Context(), id, clientIP(r), version, country, arch); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	resp := map[string]any{"ok": true}
 	// Self-upgrade directive: if a target is pending and the agent isn't on it
-	// yet, tell it; if it already is, clear the pending flag.
+	// yet, tell it (with a region-aware download URL); if it already is, clear.
 	if agent.PendingUpgrade != "" {
 		if version != "" && version == agent.PendingUpgrade {
 			_ = s.store.ClearPendingUpgrade(r.Context(), id)
 		} else {
 			resp["upgrade_to"] = agent.PendingUpgrade
+			resp["download_url"] = s.buildDownloadURL(r.Context(), agent.PendingUpgrade, arch, country)
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)

@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Settings, FileText, Download, Upload, Trash2, Plus, RefreshCw, Lock, Cloud, LogOut,
+  Settings, FileText, Download, Upload, Trash2, Plus, RefreshCw, Lock, Cloud, LogOut, Globe,
 } from 'lucide-vue-next'
 import VChart from 'vue-echarts'
 import 'echarts'
@@ -10,6 +10,7 @@ import {
   listNodes, createNode, updatePolicy, deleteNode,
   changePassword, getEvents, getInstallCommand, upgradeNode,
   getTunnel, enableTunnel, disableTunnel,
+  getGhProxy, setGhProxy,
 } from '../api'
 
 const nodes = ref([])
@@ -44,6 +45,10 @@ const showTunnel = ref(false)
 const tunnel = ref({ enabled: false, url: '', installed: false, logs: [] })
 const logBox = ref(null)
 let tunnelTimer = null
+
+// gh proxy config
+const showGhProxy = ref(false)
+const ghProxyForm = ref('')
 
 let timer = null
 
@@ -266,6 +271,22 @@ function closeTunnel() {
   showTunnel.value = false
   if (tunnelTimer) { clearInterval(tunnelTimer); tunnelTimer = null }
 }
+
+async function openGhProxy() {
+  try {
+    ghProxyForm.value = await getGhProxy()
+  } catch (e) { /* ignore */ }
+  showGhProxy.value = true
+}
+async function saveGhProxy() {
+  try {
+    await setGhProxy(ghProxyForm.value.trim())
+    ElMessage.success('已保存')
+    showGhProxy.value = false
+  } catch (e) {
+    ElMessage.error(e.response?.status === 400 ? '地址必须以 http:// 或 https:// 开头' : '保存失败')
+  }
+}
 async function toggleTunnel() {
   try {
     if (tunnel.value.enabled) await disableTunnel()
@@ -341,6 +362,9 @@ onUnmounted(() => {
               <Cloud :size="16" :stroke-width="1.5" />
             </el-button>
           </el-tooltip>
+          <el-tooltip content="加速源" placement="bottom">
+            <el-button text @click="openGhProxy"><Globe :size="16" :stroke-width="1.5" /></el-button>
+          </el-tooltip>
           <el-tooltip content="修改密码" placement="bottom">
             <el-button text @click="showPassword = true"><Lock :size="16" :stroke-width="1.5" /></el-button>
           </el-tooltip>
@@ -381,6 +405,9 @@ onUnmounted(() => {
                   {{ row.online ? '在线' : '离线' }}
                 </el-tag>
               </template>
+            </el-table-column>
+            <el-table-column label="地区" width="80">
+              <template #default="{ row }">{{ row.country || '—' }}</template>
             </el-table-column>
             <el-table-column label="版本" width="100">
               <template #default="{ row }">
@@ -553,6 +580,17 @@ onUnmounted(() => {
         <div v-for="(l, i) in tunnel.logs" :key="i" class="log-line">{{ l }}</div>
         <div v-if="!tunnel.logs.length" class="muted">（暂无日志）</div>
       </div>
+    </el-dialog>
+
+    <!-- gh proxy config -->
+    <el-dialog v-model="showGhProxy" title="GitHub 加速源" width="500">
+      <p class="muted">用于 agent 自升级 / 首次安装时下载 GitHub releases。留空则中国 agent 也直连（可能失败）。</p>
+      <el-input v-model="ghProxyForm" placeholder="https://gh-proxy.org" />
+      <div class="muted small" style="margin-top:8px">仅对上报地区为 CN 的 agent 生效；海外 agent 始终直连。</div>
+      <template #footer>
+        <el-button type="primary" @click="saveGhProxy">保存</el-button>
+        <el-button @click="showGhProxy = false">取消</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
