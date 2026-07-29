@@ -91,7 +91,15 @@ agent 在境外、master 在国内时，明文大上传容易被 GFW/链路 RST�
 - agent 的**上传数据自动改走 tunnel**（加密、避开 RST，通常比直连快），**控制面（心跳/策略）仍走直连**——tunnel 即使抖动，agent 也不离线。
 - **无需域名、无需备案**：tunnel 是 master 主动出站建立，不开任何入站端口。
 
-面板点「Cloudflare Tunnel」→ 启用，看实时安装日志即可。size 建议 ≤ 5MB（国际链路带宽有限，单次约 100s 内传完最稳；想加流量优先调小 interval）。
+面板点「Cloudflare Tunnel」→ 启用，看实时安装日志即可。size 建议 ≤ 5MB（国际链路带宽有限，单次约 100s 内传完最稳；想加流量优先调小 interval）。master 重启后 tunnel 会按上次意图**自动重开**（新 trycloudflare URL，agent ≤30s 跟随）。
+
+## GitHub 加速源（面板可配，地区感知）
+
+agent 自升级 / 首次安装要从 GitHub Releases 下载二进制，国内直连不通。面板顶栏「🌐 加速源」可配置镜像地址（如 `https://gh-proxy.org`）：
+
+- 仅对上报地区为 **CN** 的 agent 生效（走加速）；海外 agent 始终直连 GitHub。
+- agent 启动通过 ip-api.com 探测国家码并上报 master，master 据此决定下发直连还是加速 URL。
+- 留空则中国 agent 也直连（可能下载失败）。
 
 ## 开发
 
@@ -105,18 +113,19 @@ go run ./cmd/agent  # 本地跑 agent
 
 ## 功能与路线
 
-**已完成（v0.3.0）**：
+**已完成（v0.6.0）**：
 - Agent 注册 / 心跳 / 上传（心跳、拉策略、上传三个独立 goroutine，上传再慢也不会被判离线）
-- 面板：节点列表、累计上行、策略编辑、一键生成安装命令
-- 密码修改（bcrypt 哈希）、节点 3 天上传日志、随时查看安装命令
-- 一行安装（install.sh，国内自动走 gh-proxy.org 镜像）、Caddy HTTPS 部署
-- **Cloudflare Tunnel**（可选：加密 agent 上传，绕开未备案 443 与 GFW RST）
+- 面板（acme 设计系统 / Inter / lucide 图标）：4 KPI 卡、节点表（在线/地区/版本/累计上行/策略）、策略编辑（固定/随机流量类型 segmented）、一键生成安装命令、密码修改、24h 上传曲线 + 详情
+- **Agent 自升级**：面板点升级图标，agent 自动下载替换重启（按地区路由下载源）
+- **Cloudflare Tunnel**（可选：加密 agent 上传，绕开未备案 443 与 GFW RST；master 重启自动恢复）
+- **GitHub 加速源可配 + 地区感知**：面板配置加速源，中国 agent 走加速、海外直连
+- 一行安装（install.sh）、Caddy HTTPS 部署、agent 版本/地区上报
 
-**V1 / V2 计划**：随机化（时间抖动 / 包大小 `[min,max]` 范围）、WebSocket 实时指令、分组批量、代理链（WARP / SOCKS5）、流量伪装、多目标上传。
+**V1 / V2 计划**：随机化（时间抖动）、WebSocket 实时指令、分组批量、代理链（WARP / SOCKS5）、流量伪装、多目标上传。
 
 ## 状态
 
-✅ 稳定运行中 —— 最新 [v0.3.0](https://github.com/PiPi-happy/traffic-keeper/releases/latest)。
+✅ 稳定运行中 —— 最新 [v0.6.0](https://github.com/PiPi-happy/traffic-keeper/releases/latest)。
 
 ## License
 
