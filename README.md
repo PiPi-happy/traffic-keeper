@@ -101,6 +101,22 @@ agent 自升级 / 首次安装要从 GitHub Releases 下载二进制，国内直
 - agent 启动通过 ip-api.com 探测国家码并上报 master，master 据此决定下发直连还是加速 URL。
 - 留空则中国 agent 也直连（可能下载失败）。
 
+## 多 Master（一发多收）
+
+一个 agent 可以同时向**多个 master** 上传。跑某个 master 的安装命令 = 在 agent 上「添加一个 master」；同 master 重复跑会**覆盖凭证**，不会重复添加。在 agent 机器用 CLI 管理：
+
+```bash
+traffic-keeper-agent list                              # 查看已配置的 master
+traffic-keeper-agent add --server <URL> --token <T>     # 添加/覆盖一个 master
+traffic-keeper-agent stop <server>                      # 暂停向某 master 上传（保留配置）
+traffic-keeper-agent start <server>                     # 恢复
+traffic-keeper-agent remove <server>                    # 删除一个 master
+```
+
+- 同一台 VPS 跑多个 master 的安装命令 = 添加多个 master，agent 同时向所有未 stop 的 master 上传（add/remove/stop/start 后自动热加载，无需重启服务）。
+- 上传日志标明目标地址（`uploaded N to https://xxx.trycloudflare.com/upload/<id>` 或 IP），一眼看出是否走了 tunnel。
+- 每个 master 在服务端是一个独立 agent（各自统计/策略/升级），互不影响。
+
 ## 开发
 
 ```bash
@@ -113,9 +129,10 @@ go run ./cmd/agent  # 本地跑 agent
 
 ## 功能与路线
 
-**已完成（v0.6.0）**：
+**已完成（v0.7.0）**：
 - Agent 注册 / 心跳 / 上传（心跳、拉策略、上传三个独立 goroutine，上传再慢也不会被判离线）
 - 面板（acme 设计系统 / Inter / lucide 图标）：4 KPI 卡、节点表（在线/地区/版本/累计上行/策略）、策略编辑（固定/随机流量类型 segmented）、一键生成安装命令、密码修改、24h 上传曲线 + 详情
+- **Agent 多 Master（一发多收）**：一个 agent 同时向多个 master 上传；CLI `add/list/remove/stop/start` 管理.master 列表；同 master 覆盖凭证、热加载；上传日志带目标地址
 - **Agent 自升级**：面板点升级图标，agent 自动下载替换重启（按地区路由下载源）
 - **Cloudflare Tunnel**（可选：加密 agent 上传，绕开未备案 443 与 GFW RST；master 重启自动恢复）
 - **GitHub 加速源可配 + 地区感知**：面板配置加速源，中国 agent 走加速、海外直连
@@ -125,7 +142,7 @@ go run ./cmd/agent  # 本地跑 agent
 
 ## 状态
 
-✅ 稳定运行中 —— 最新 [v0.6.0](https://github.com/PiPi-happy/traffic-keeper/releases/latest)。
+✅ 稳定运行中 —— 最新 [v0.7.0](https://github.com/PiPi-happy/traffic-keeper/releases/latest)。
 
 ## License
 

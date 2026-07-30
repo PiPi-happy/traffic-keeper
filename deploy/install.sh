@@ -97,7 +97,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${BINARY} --server ${SERVER} --token ${TOKEN} --state ${STATE_FILE}
+ExecStart=${BINARY} run --state ${STATE_FILE}
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=10
 # Hardening
@@ -112,7 +113,12 @@ EOF
 
 systemctl daemon-reload
 systemctl enable traffic-keeper-agent >/dev/null 2>&1 || true
-systemctl restart traffic-keeper-agent
+# Stop any old instance, add this master (same server overwrites credentials),
+# then start. Re-running install.sh on a host with other masters won't clobber
+# them — `add` only touches the one matching server.
+systemctl stop traffic-keeper-agent >/dev/null 2>&1 || true
+"${BINARY}" add --server "${SERVER}" --token "${TOKEN}" --state "${STATE_FILE}"
+systemctl start traffic-keeper-agent
 
 echo
 echo "Done. traffic-keeper-agent is installed and running."
