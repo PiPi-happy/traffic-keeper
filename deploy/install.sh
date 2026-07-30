@@ -98,7 +98,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=${BINARY} run --state ${STATE_FILE}
-ExecReload=/bin/kill -HUP $MAINPID
+ExecReload=/bin/kill -HUP \$MAINPID
 Restart=always
 RestartSec=10
 # Hardening
