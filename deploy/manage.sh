@@ -12,6 +12,9 @@
 #   sudo ./manage.sh uninstall-agent
 #   支持: install-master|install-agent|update-master|update-agent|uninstall-master|uninstall-agent
 #
+# 注意: 所有交互 read 都显式 </dev/tty —— 这样 `curl|bash`（bash 从管道读脚本）
+# 时，菜单输入仍从终端读，不会被管道里的脚本内容"喂"进去。
+#
 set -o pipefail
 
 REPO="PiPi-happy/traffic-keeper"
@@ -38,14 +41,12 @@ arch() {
 	esac
 }
 
-# GitHub release 下载地址（国内默认走 gh-proxy）
 ghurl() {
 	local u="https://github.com/${REPO}/releases/latest/download/$1"
 	[ -n "$GHPROXY" ] && u="${GHPROXY}/${u}"
 	echo "$u"
 }
 
-# 下载到目标路径：dl <url> <dest>
 dl() {
 	local tmp; tmp="$(mktemp)"
 	if ! curl -fsSL -o "$tmp" "$1"; then
@@ -56,7 +57,7 @@ dl() {
 	install -m 0755 "$tmp" "$2"; rm -f "$tmp"
 }
 
-svc_active() { systemctl is-active --quiet "$1" 2>/dev/null; }   # 退出码: 0=运行中
+svc_active() { systemctl is-active --quiet "$1" 2>/dev/null; }
 state_of() { svc_active "$1" && echo "运行中" || echo "未运行"; }
 
 preflight() {
@@ -64,8 +65,6 @@ preflight() {
 	[ "$(uname -s)" = Linux ] || { echo "error: 仅支持 Linux" >&2; exit 1; }
 	command -v systemctl >/dev/null 2>&1 || { echo "error: 未找到 systemd" >&2; exit 1; }
 	command -v curl >/dev/null 2>&1 || { echo "error: 未找到 curl" >&2; exit 1; }
-	# curl|bash 时 stdin 是管道，把交互输入重定向到终端
-	[ -t 0 ] || exec </dev/tty
 }
 
 # ---------- master ----------
@@ -74,9 +73,9 @@ install_master() {
 	if [ -x "$MASTER_BIN" ]; then echo "master 已安装（用「更新 Master」升级）"; return 0; fi
 	local default_url="http://$(hostname -I 2>/dev/null | awk '{print $1}'):8080"
 	local base pw
-	read -rp "MASTER_BASE_URL（agent 连接用，默认 $default_url）: " base
+	read -rp "MASTER_BASE_URL（agent 连接用，默认 $default_url）: " base </dev/tty
 	base="${base:-$default_url}"
-	read -rsp "MASTER_ADMIN_PASSWORD（面板登录密码，≥6位）: " pw; echo
+	read -rsp "MASTER_ADMIN_PASSWORD（面板登录密码，≥6位）: " pw </dev/tty; echo
 	[ "${#pw}" -ge 6 ] || { echo "error: 密码至少 6 位" >&2; return 1; }
 
 	mkdir -p "$STATE_DIR"
@@ -120,7 +119,7 @@ update_master() {
 uninstall_master() {
 	[ -e "$MASTER_UNIT" ] || [ -x "$MASTER_BIN" ] || { echo "master 未安装" >&2; return 1; }
 	echo "卸载 master（数据库 $MASTER_DB 保留，不自动删）"
-	local c; read -rp "确认卸载 master？[y/N] " c
+	local c; read -rp "确认卸载 master？[y/N] " c </dev/tty
 	[[ "$c" =~ ^[Yy] ]] || { echo "已取消"; return 0; }
 	systemctl stop "$MASTER_SVC" 2>/dev/null || true
 	systemctl disable "$MASTER_SVC" 2>/dev/null || true
@@ -133,9 +132,9 @@ uninstall_master() {
 install_agent() {
 	echo "=== 安装 Agent ==="
 	local token server
-	read -rp "token（面板「新建节点」生成的安装 token）: " token
+	read -rp "token（面板「新建节点」生成的安装 token）: " token </dev/tty
 	[ -n "$token" ] || { echo "error: token 必填" >&2; return 1; }
-	read -rp "master 地址（如 https://master.example.com 或 http://1.2.3.4:8080）: " server
+	read -rp "master 地址（如 https://master.example.com 或 http://1.2.3.4:8080）: " server </dev/tty
 	[ -n "$server" ] || { echo "error: server 必填" >&2; return 1; }
 
 	mkdir -p "$STATE_DIR"
@@ -164,8 +163,7 @@ WantedBy=multi-user.target
 EOF
 	systemctl daemon-reload
 	systemctl enable "$AGENT_SVC" >/dev/null 2>&1 || true
-	systemctl stop "$AGENT_SVC" >/dev/null 2>&1 || true
-	# add 只覆盖同 server 的凭证，不影响已配置的其他 master
+	systemctl stop "$AGENT_SVC" >/dev/null 2>/dev/null || true
 	"${AGENT_BIN}" add --server "${server}" --token "${token}" --state "${AGENT_STATE}"
 	systemctl start "$AGENT_SVC"
 	echo "✓ agent 已安装并启动"
@@ -183,13 +181,13 @@ update_agent() {
 uninstall_agent() {
 	[ -e "$AGENT_UNIT" ] || [ -x "$AGENT_BIN" ] || { echo "agent 未安装" >&2; return 1; }
 	echo "卸载 agent"
-	local c; read -rp "确认卸载 agent？[y/N] " c
+	local c; read -rp "确认卸载 agent？[y/N] " c </dev/tty
 	[[ "$c" =~ ^[Yy] ]] || { echo "已取消"; return 0; }
 	systemctl stop "$AGENT_SVC" 2>/dev/null || true
 	systemctl disable "$AGENT_SVC" 2>/dev/null || true
 	rm -f "$AGENT_BIN" "$AGENT_UNIT"
 	systemctl daemon-reload
-	local cc; read -rp "同时删除 agent state（已配置的 master 凭据）？[y/N] " cc
+	local cc; read -rp "同时删除 agent state（已配置的 master 凭据）？[y/N] " cc </dev/tty
 	if [[ "$cc" =~ ^[Yy] ]]; then rm -f "$AGENT_STATE"; echo "  state 已删"; fi
 	echo "✓ agent 已卸载"
 }
@@ -214,7 +212,7 @@ show_menu() {
 menu() {
 	while true; do
 		show_menu
-		local n; read -rp "请选择 [0-6]: " n
+		local n; read -rp "请选择 [0-6]: " n </dev/tty
 		case "$n" in
 			1) install_master ;;
 			2) install_agent ;;
@@ -226,7 +224,7 @@ menu() {
 			*) echo "无效选择：$n" ;;
 		esac
 		echo
-		read -rp "按回车返回菜单..." _
+		read -rp "按回车返回菜单..." _ </dev/tty
 	done
 }
 
