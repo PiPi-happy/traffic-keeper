@@ -286,3 +286,44 @@ func TestUploadFailureTriggersPolicyRefresh(t *testing.T) {
 		t.Fatalf("expected exactly 1 throttled policy refresh after repeated failures, got %d", got)
 	}
 }
+
+// TestUpload5xxTriggersRefreshAndBackoff: an HTTP 5xx (e.g. CF 502/524 when the
+// tunnel origin is unreachable) is also treated as a failure — it must pull a
+// fresh policy AND set the backoff window so the loop doesn't hammer every tick.
+func TestUpload5xxTriggersRefreshAndBackoff(t *testing.T) {
+	var policyHits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/policy") {
+			policyHits.Add(1)
+			_, _ = w.Write([]byte(`{"enabled":true,"interval_sec":1,"size_mb":1,"upload_url":"placeholder"}`))
+			return
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusBadGateway) // CF-style origin-unreachable 5xx
+	}))
+	defer srv.Close()
+
+	c := &masterConn{server: srv.URL, agentID: "a1", secret: "x"}
+	c.mu.Lock()
+	c.policy = policy{Enabled: true, IntervalSec: 1, SizeMB: 1, UploadURL: srv.URL}
+	c.intervalSec = 1
+	c.mu.Unlock()
+
+	c.upload(context.Background(), &http.Client{Timeout: 5 * time.Second})
+
+	// backoff is set synchronously before the async refresh fires.
+	c.mu.Lock()
+	backoff := c.failBackoffUntil
+	c.mu.Unlock()
+	if !backoff.After(time.Now()) {
+		t.Fatalf("failBackoffUntil should be in the future after a 5xx, got %v", backoff)
+	}
+	// the async policy refresh lands within a moment.
+	dl := time.Now().Add(3 * time.Second)
+	for time.Now().Before(dl) && policyHits.Load() == 0 {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if policyHits.Load() != 1 {
+		t.Fatalf("5xx should trigger 1 policy refresh, got %d", policyHits.Load())
+	}
+}

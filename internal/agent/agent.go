@@ -33,6 +33,7 @@ var (
 	policyPullInterval = 30 * time.Second
 	tickInterval       = 10 * time.Second
 	defaultTimeout     = 5 * time.Minute
+	failBackoff        = 30 * time.Second // pause after an upload failure (err or 5xx) so the loop doesn't hammer a stale URL every tick
 )
 
 const upgradeRepo = "PiPi-happy/traffic-keeper"
@@ -85,6 +86,7 @@ type masterConn struct {
 	lastPolicyPull     time.Time
 	lastRefreshAttempt time.Time // gates failure-triggered policy refreshes
 	lastUpload         time.Time
+	failBackoffUntil   time.Time // no upload before this time after a failure
 }
 
 // Agent is the supervisor: manages N masterConn, each with its own loop group.
@@ -248,9 +250,13 @@ func (a *Agent) uploadLoop(ctx context.Context, c *masterConn) {
 			p := c.policy
 			last := c.lastUpload
 			interval := c.intervalSec
+			backoffUntil := c.failBackoffUntil
 			c.mu.Unlock()
 			if !p.Enabled || interval <= 0 {
 				continue
+			}
+			if time.Now().Before(backoffUntil) {
+				continue // recent failure — don't hammer a stale/dead URL every tick
 			}
 			if time.Since(last) < time.Duration(interval)*time.Second {
 				continue
@@ -395,8 +401,8 @@ func (c *masterConn) upload(ctx context.Context, client *http.Client) {
 	if err != nil {
 		log.Printf("[%s] upload: %v", target, err)
 		// A failure usually means our cached upload URL went stale (e.g. the
-		// master restarted and the tunnel got a new URL) — pull a fresh policy.
-		c.triggerPolicyRefresh(ctx, client)
+		// master restarted and the tunnel got a new URL).
+		c.onUploadFailure(ctx, client)
 		return
 	}
 	defer resp.Body.Close()
@@ -409,7 +415,21 @@ func (c *masterConn) upload(ctx context.Context, client *http.Client) {
 		log.Printf("[%s] uploaded %d bytes (%dMB) in %s", target, n, sizeMB, time.Since(start).Round(time.Millisecond))
 	} else {
 		log.Printf("[%s] upload: status %d", target, resp.StatusCode)
+		// A 5xx (e.g. CF 502/524 when the tunnel's origin is unreachable) is a
+		// failure too — back off and pull a fresh policy, same as a network error.
+		c.onUploadFailure(ctx, client)
 	}
+}
+
+// onUploadFailure handles any upload failure (network error or a 5xx response):
+// it backs off for failBackoff so the loop doesn't hammer a stale/dead URL every
+// tick, and pulls a fresh policy (throttled) — which, after a master restart,
+// yields the new tunnel URL far faster than waiting for policyLoop.
+func (c *masterConn) onUploadFailure(ctx context.Context, client *http.Client) {
+	c.mu.Lock()
+	c.failBackoffUntil = time.Now().Add(failBackoff)
+	c.mu.Unlock()
+	c.triggerPolicyRefresh(ctx, client)
 }
 
 // --- self-upgrade (global, single binary) ---
