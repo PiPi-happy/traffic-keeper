@@ -7,9 +7,10 @@ import (
 )
 
 // handleAgent dispatches agent-facing control-plane routes under /api/agent/.
-//   POST /api/agent/register
-//   POST /api/agent/{id}/heartbeat
-//   GET  /api/agent/{id}/policy
+//
+//	POST /api/agent/register
+//	POST /api/agent/{id}/heartbeat
+//	GET  /api/agent/{id}/policy
 func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	p := strings.TrimPrefix(r.URL.Path, "/api/agent/")
 	switch {
@@ -107,11 +108,14 @@ func (s *Server) handleAgentPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled":      p.Enabled,
-		"interval_sec": p.IntervalSec,
-		"size_mb":      p.SizeMB,
-		"size_min_mb":  p.SizeMinMB,
-		"size_max_mb":  p.SizeMaxMB,
-		"upload_url":   s.tunnel.UploadURL(), // tunnel base when up
+		"enabled":          p.Enabled,
+		"interval_sec":     p.IntervalSec,
+		"interval_min_sec": p.IntervalMinSec,
+		"interval_max_sec": p.IntervalMaxSec,
+		"size_mb":          p.SizeMB,
+		"size_min_mb":      p.SizeMinMB,
+		"size_max_mb":      p.SizeMaxMB,
+		"upload_url":       s.tunnel.UploadURL(), // tunnel base when up ("" while negotiating)
+		"tunnel_enabled":   s.tunnel.Enabled(),   // whether a tunnel is intended to be up
 	})
 }

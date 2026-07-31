@@ -179,12 +179,15 @@ func TestPendingUpgradeAndPolicyRange(t *testing.T) {
 		t.Fatalf("pending not cleared: %q", got.PendingUpgrade)
 	}
 
-	// policy random range persists
-	if err := s.UpsertPolicy(ctx, Policy{AgentID: "a1", Enabled: true, IntervalSec: 60, SizeMB: 5, SizeMinMB: 2, SizeMaxMB: 8}); err != nil {
+	// policy random ranges persist (size + interval)
+	if err := s.UpsertPolicy(ctx, Policy{AgentID: "a1", Enabled: true, IntervalSec: 60, IntervalMinSec: 30, IntervalMaxSec: 90, SizeMB: 5, SizeMinMB: 2, SizeMaxMB: 8}); err != nil {
 		t.Fatal(err)
 	}
 	p, _ := s.GetPolicy(ctx, "a1")
 	if p.SizeMinMB != 2 || p.SizeMaxMB != 8 {
-		t.Fatalf("range not stored: %+v", p)
+		t.Fatalf("size range not stored: %+v", p)
+	}
+	if p.IntervalMinSec != 30 || p.IntervalMaxSec != 90 {
+		t.Fatalf("interval range not stored: %+v", p)
 	}
 }

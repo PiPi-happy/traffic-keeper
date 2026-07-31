@@ -129,20 +129,23 @@ go run ./cmd/agent  # 本地跑 agent
 
 ## 功能与路线
 
-**已完成（v0.7.0）**：
+**已完成（v0.8.0）**：
 - Agent 注册 / 心跳 / 上传（心跳、拉策略、上传三个独立 goroutine，上传再慢也不会被判离线）
-- 面板（acme 设计系统 / Inter / lucide 图标）：4 KPI 卡、节点表（在线/地区/版本/累计上行/策略）、策略编辑（固定/随机流量类型 segmented）、一键生成安装命令、密码修改、24h 上传曲线 + 详情
+- 面板（acme 设计系统 / Inter / lucide 图标）：节点表（在线/地区/版本/累计上行/策略）、策略编辑（固定/随机 **流量大小与上传间隔** segmented）、一键生成安装命令、密码修改、24h 上传曲线 + 详情
+- **仪表盘页**：左侧导航新增仪表盘（在线/累计上行/上传次数/平均速率 KPI、24h 全台上行趋势曲线、上传成功率、各地区节点分布）；节点列表加宽占满、移除自动刷新改为手动、新建/刷新按钮上移
+- **随机上传间隔**：策略支持固定/随机间隔（每次上传后在 min~max 秒间随机等待），与流量大小随机同理
+- **EOF 自动恢复**：master 升级/重启后 tunnel 换新 URL，agent 上传失败自动刷新策略、tunnel 未就绪时退避，不再持续刷 EOF、无需手动重启 agent
 - **Agent 多 Master（一发多收）**：一个 agent 同时向多个 master 上传；CLI `add/list/remove/stop/start` 管理.master 列表；同 master 覆盖凭证、热加载；上传日志带目标地址
 - **Agent 自升级**：面板点升级图标，agent 自动下载替换重启（按地区路由下载源）
 - **Cloudflare Tunnel**（可选：加密 agent 上传，绕开未备案 443 与 GFW RST；master 重启自动恢复）
 - **GitHub 加速源可配 + 地区感知**：面板配置加速源，中国 agent 走加速、海外直连
 - 一行安装（install.sh）、Caddy HTTPS 部署、agent 版本/地区上报
 
-**V1 / V2 计划**：随机化（时间抖动）、WebSocket 实时指令、分组批量、代理链（WARP / SOCKS5）、流量伪装、多目标上传。
+**V1 / V2 计划**：WebSocket 实时指令、分组批量、代理链（WARP / SOCKS5）、流量伪装、多目标上传、控制面来源白名单与 named tunnel。
 
 ## 状态
 
-✅ 稳定运行中 —— 最新 [v0.7.0](https://github.com/PiPi-happy/traffic-keeper/releases/latest)。
+✅ 稳定运行中 —— 最新 [v0.8.0](https://github.com/PiPi-happy/traffic-keeper/releases/latest)。
 
 ## License
 

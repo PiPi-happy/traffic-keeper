@@ -60,13 +60,15 @@ CREATE TABLE IF NOT EXISTS agents (
 );
 
 CREATE TABLE IF NOT EXISTS policies (
-  agent_id     TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
-  enabled      INTEGER NOT NULL DEFAULT 1,
-  interval_sec INTEGER NOT NULL DEFAULT 1800,
-  size_mb      INTEGER NOT NULL DEFAULT 50,
-  size_min_mb  INTEGER NOT NULL DEFAULT 0,
-  size_max_mb  INTEGER NOT NULL DEFAULT 0,
-  updated_at   INTEGER NOT NULL
+  agent_id         TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
+  enabled          INTEGER NOT NULL DEFAULT 1,
+  interval_sec     INTEGER NOT NULL DEFAULT 1800,
+  interval_min_sec INTEGER NOT NULL DEFAULT 0,
+  interval_max_sec INTEGER NOT NULL DEFAULT 0,
+  size_mb          INTEGER NOT NULL DEFAULT 50,
+  size_min_mb      INTEGER NOT NULL DEFAULT 0,
+  size_max_mb      INTEGER NOT NULL DEFAULT 0,
+  updated_at       INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS stats (

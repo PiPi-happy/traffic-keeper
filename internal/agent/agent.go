@@ -46,17 +46,20 @@ type Config struct {
 
 // policy mirrors the master policy the agent pulls (per-master).
 type policy struct {
-	Enabled     bool   `json:"enabled"`
-	IntervalSec int    `json:"interval_sec"`
-	SizeMB      int    `json:"size_mb"`
-	SizeMinMB   int    `json:"size_min_mb"`
-	SizeMaxMB   int    `json:"size_max_mb"`
-	UploadURL   string `json:"upload_url"`
+	Enabled        bool   `json:"enabled"`
+	IntervalSec    int    `json:"interval_sec"`
+	IntervalMinSec int    `json:"interval_min_sec"`
+	IntervalMaxSec int    `json:"interval_max_sec"`
+	SizeMB         int    `json:"size_mb"`
+	SizeMinMB      int    `json:"size_min_mb"`
+	SizeMaxMB      int    `json:"size_max_mb"`
+	UploadURL      string `json:"upload_url"`
+	TunnelEnabled  bool   `json:"tunnel_enabled"`
 }
 
 // StateMaster is one master's persisted credentials.
 type StateMaster struct {
-	Server  string `json:"server"`            // normalized scheme://host[:port], dedup key
+	Server  string `json:"server"` // normalized scheme://host[:port], dedup key
 	AgentID string `json:"agent_id"`
 	Secret  string `json:"secret"`
 	Stopped bool   `json:"stopped,omitempty"`
@@ -75,11 +78,13 @@ type masterConn struct {
 	secret  string
 	stopped bool
 
-	mu             sync.Mutex
-	policy         policy
-	lastHeartbeat  time.Time
-	lastPolicyPull time.Time
-	lastUpload     time.Time
+	mu                 sync.Mutex
+	policy             policy
+	intervalSec        int // effective interval, re-randomized after each upload
+	lastHeartbeat      time.Time
+	lastPolicyPull     time.Time
+	lastRefreshAttempt time.Time // gates failure-triggered policy refreshes
+	lastUpload         time.Time
 }
 
 // Agent is the supervisor: manages N masterConn, each with its own loop group.
@@ -242,11 +247,12 @@ func (a *Agent) uploadLoop(ctx context.Context, c *masterConn) {
 			c.mu.Lock()
 			p := c.policy
 			last := c.lastUpload
+			interval := c.intervalSec
 			c.mu.Unlock()
-			if !p.Enabled || p.IntervalSec <= 0 {
+			if !p.Enabled || interval <= 0 {
 				continue
 			}
-			if time.Since(last) < time.Duration(p.IntervalSec)*time.Second {
+			if time.Since(last) < time.Duration(interval)*time.Second {
 				continue
 			}
 			c.upload(ctx, a.client)
@@ -314,8 +320,37 @@ func (c *masterConn) refreshPolicy(ctx context.Context, client *http.Client) {
 	}
 	c.mu.Lock()
 	c.policy = p
+	c.intervalSec = computeInterval(p)
 	c.lastPolicyPull = time.Now()
 	c.mu.Unlock()
+}
+
+// computeInterval returns the effective upload interval (seconds) for a policy:
+// a random value in [IntervalMinSec, IntervalMaxSec] when a range is set,
+// otherwise the fixed IntervalSec. Re-evaluated after every successful upload
+// so the wait varies upload-to-upload.
+func computeInterval(p policy) int {
+	if p.IntervalMaxSec > p.IntervalMinSec {
+		return p.IntervalMinSec + mrand.IntN(p.IntervalMaxSec-p.IntervalMinSec+1)
+	}
+	if p.IntervalSec <= 0 {
+		return 0
+	}
+	return p.IntervalSec
+}
+
+// triggerPolicyRefresh pulls a fresh policy after an upload failure, throttled
+// (at most once per 10s) and run asynchronously so it never blocks the upload
+// loop — even if the master is mid-restart and the request hangs.
+func (c *masterConn) triggerPolicyRefresh(ctx context.Context, client *http.Client) {
+	c.mu.Lock()
+	if time.Since(c.lastRefreshAttempt) < 10*time.Second {
+		c.mu.Unlock()
+		return
+	}
+	c.lastRefreshAttempt = time.Now()
+	c.mu.Unlock()
+	go c.refreshPolicy(ctx, client)
 }
 
 func (c *masterConn) upload(ctx context.Context, client *http.Client) {
@@ -331,8 +366,16 @@ func (c *masterConn) upload(ctx context.Context, client *http.Client) {
 		sizeMB = 1
 	}
 
+	// Data-plane target: prefer the tunnel URL. If a tunnel is enabled but its
+	// URL isn't ready yet (master just restarted, cloudflared still negotiating),
+	// skip this round and wait for the next policy pull — falling back to a
+	// direct connection would be RST'd by GFW during that window.
 	base := p.UploadURL
 	if base == "" {
+		if p.TunnelEnabled {
+			log.Printf("[%s] upload: tunnel url not ready, skipping", c.server)
+			return
+		}
 		base = c.server
 	}
 	n := int64(sizeMB) * 1024 * 1024
@@ -351,6 +394,9 @@ func (c *masterConn) upload(ctx context.Context, client *http.Client) {
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("[%s] upload: %v", target, err)
+		// A failure usually means our cached upload URL went stale (e.g. the
+		// master restarted and the tunnel got a new URL) — pull a fresh policy.
+		c.triggerPolicyRefresh(ctx, client)
 		return
 	}
 	defer resp.Body.Close()
@@ -358,6 +404,7 @@ func (c *masterConn) upload(ctx context.Context, client *http.Client) {
 	if resp.StatusCode == http.StatusOK {
 		c.mu.Lock()
 		c.lastUpload = time.Now()
+		c.intervalSec = computeInterval(c.policy) // re-roll the next wait
 		c.mu.Unlock()
 		log.Printf("[%s] uploaded %d bytes (%dMB) in %s", target, n, sizeMB, time.Since(start).Round(time.Millisecond))
 	} else {

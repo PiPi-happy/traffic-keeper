@@ -132,11 +132,13 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 			"country":         a.Country,
 			"arch":            a.Arch,
 			"policy": map[string]any{
-				"enabled":      p.Enabled,
-				"interval_sec": p.IntervalSec,
-				"size_mb":      p.SizeMB,
-				"size_min_mb":  p.SizeMinMB,
-				"size_max_mb":  p.SizeMaxMB,
+				"enabled":          p.Enabled,
+				"interval_sec":     p.IntervalSec,
+				"interval_min_sec": p.IntervalMinSec,
+				"interval_max_sec": p.IntervalMaxSec,
+				"size_mb":          p.SizeMB,
+				"size_min_mb":      p.SizeMinMB,
+				"size_max_mb":      p.SizeMaxMB,
 			},
 		})
 	}
@@ -202,11 +204,13 @@ func (s *Server) handleNodePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Enabled     *bool `json:"enabled"`
-		IntervalSec *int  `json:"interval_sec"`
-		SizeMB      *int  `json:"size_mb"`
-		SizeMinMB   *int  `json:"size_min_mb"`
-		SizeMaxMB   *int  `json:"size_max_mb"`
+		Enabled        *bool `json:"enabled"`
+		IntervalSec    *int  `json:"interval_sec"`
+		IntervalMinSec *int  `json:"interval_min_sec"`
+		IntervalMaxSec *int  `json:"interval_max_sec"`
+		SizeMB         *int  `json:"size_mb"`
+		SizeMinMB      *int  `json:"size_min_mb"`
+		SizeMaxMB      *int  `json:"size_max_mb"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -226,6 +230,20 @@ func (s *Server) handleNodePolicy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p.IntervalSec = *body.IntervalSec
+	}
+	if body.IntervalMinSec != nil {
+		if *body.IntervalMinSec < 0 {
+			http.Error(w, "interval_min_sec must be >= 0", http.StatusBadRequest)
+			return
+		}
+		p.IntervalMinSec = *body.IntervalMinSec
+	}
+	if body.IntervalMaxSec != nil {
+		if *body.IntervalMaxSec < 0 {
+			http.Error(w, "interval_max_sec must be >= 0", http.StatusBadRequest)
+			return
+		}
+		p.IntervalMaxSec = *body.IntervalMaxSec
 	}
 	if body.SizeMB != nil {
 		if *body.SizeMB < 1 {
@@ -252,16 +270,22 @@ func (s *Server) handleNodePolicy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "size_max_mb must be >= size_min_mb", http.StatusBadRequest)
 		return
 	}
+	if p.IntervalMaxSec > 0 && p.IntervalMaxSec < p.IntervalMinSec {
+		http.Error(w, "interval_max_sec must be >= interval_min_sec", http.StatusBadRequest)
+		return
+	}
 	if err := s.store.UpsertPolicy(r.Context(), p); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled":      p.Enabled,
-		"interval_sec": p.IntervalSec,
-		"size_mb":      p.SizeMB,
-		"size_min_mb":  p.SizeMinMB,
-		"size_max_mb":  p.SizeMaxMB,
+		"enabled":          p.Enabled,
+		"interval_sec":     p.IntervalSec,
+		"interval_min_sec": p.IntervalMinSec,
+		"interval_max_sec": p.IntervalMaxSec,
+		"size_mb":          p.SizeMB,
+		"size_min_mb":      p.SizeMinMB,
+		"size_max_mb":      p.SizeMaxMB,
 	})
 }
 
@@ -393,4 +417,88 @@ func (s *Server) handleGhProxy(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleDashboard returns aggregated platform-wide stats for the dashboard:
+// KPIs (totals/online/bytes/uploads/latest version), the 24h hourly upload
+// trend, upload success/failure counts, the recent average upload rate, and
+// per-region distribution. The panel polls this only on manual refresh.
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ctx := r.Context()
+	agents, err := s.store.ListAgents(ctx)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	stats, _ := s.store.AllStats(ctx)
+
+	now := time.Now().Unix()
+	since24h := now - 24*3600
+
+	var totalBytes, totalUploads int64
+	online := 0
+	type regionAgg struct {
+		nodes int
+		bytes int64
+	}
+	regions := map[string]*regionAgg{}
+	for _, a := range agents {
+		st := stats[a.ID]
+		totalBytes += st.BytesUp
+		totalUploads += st.UploadCount
+		if isOnline(a.LastSeenAt) {
+			online++
+		}
+		country := a.Country
+		if country == "" {
+			country = "?"
+		}
+		rg := regions[country]
+		if rg == nil {
+			rg = &regionAgg{}
+			regions[country] = rg
+		}
+		rg.nodes++
+		rg.bytes += st.BytesUp
+	}
+
+	hourlyRows, _ := s.store.HourlyBytes(ctx, since24h)
+	hourly := make([]map[string]any, 0, len(hourlyRows))
+	for _, h := range hourlyRows {
+		hourly = append(hourly, map[string]any{"hour": h.Hour, "bytes": h.Bytes})
+	}
+	okCount, failCount, _ := s.store.CountByStatus(ctx, since24h)
+	bytesLastHour, _ := s.store.BytesSince(ctx, now-3600)
+
+	regionList := make([]map[string]any, 0, len(regions))
+	for country, rg := range regions {
+		regionList = append(regionList, map[string]any{
+			"country":  country,
+			"nodes":    rg.nodes,
+			"bytes_up": rg.bytes,
+		})
+	}
+
+	successRate := 0.0
+	if okCount+failCount > 0 {
+		successRate = float64(okCount) / float64(okCount+failCount)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"total":          len(agents),
+		"online":         online,
+		"bytes_up":       totalBytes,
+		"uploads":        totalUploads,
+		"latest_version": s.version,
+		"hourly":         hourly,
+		"ok":             okCount,
+		"fail":           failCount,
+		"success_rate":   successRate,
+		"rate_per_sec":   float64(bytesLastHour) / 3600.0,
+		"regions":        regionList,
+	})
 }

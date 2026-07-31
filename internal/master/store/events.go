@@ -55,3 +55,63 @@ func (s *Store) DeleteEventsBefore(ctx context.Context, before int64) (int64, er
 	n, _ := res.RowsAffected()
 	return n, nil
 }
+
+// HourlyBucket is one hour-bucketed total of successful upload bytes.
+type HourlyBucket struct {
+	Hour  int64 // unix timestamp floored to the hour
+	Bytes int64
+}
+
+// HourlyBytes returns total ok upload bytes per hour (floored to the hour) for
+// events with ts>=since, ordered by hour ascending. Used for the 24h trend.
+func (s *Store) HourlyBytes(ctx context.Context, since int64) ([]HourlyBucket, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT (ts/3600)*3600 AS hour, COALESCE(SUM(bytes),0) FROM upload_events
+		 WHERE ts>=? AND status='ok' GROUP BY hour ORDER BY hour`, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []HourlyBucket
+	for rows.Next() {
+		var b HourlyBucket
+		if err := rows.Scan(&b.Hour, &b.Bytes); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// CountByStatus returns the ok/fail event counts for events with ts>=since.
+func (s *Store) CountByStatus(ctx context.Context, since int64) (ok, fail int64, err error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT status, COUNT(*) FROM upload_events WHERE ts>=? GROUP BY status`, since)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status string
+		var n int64
+		if err := rows.Scan(&status, &n); err != nil {
+			return 0, 0, err
+		}
+		switch status {
+		case "ok":
+			ok = n
+		case "fail":
+			fail = n
+		}
+	}
+	return ok, fail, rows.Err()
+}
+
+// BytesSince returns total ok upload bytes for events with ts>=since. Used to
+// derive the recent average upload rate.
+func (s *Store) BytesSince(ctx context.Context, since int64) (int64, error) {
+	var sum int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(bytes),0) FROM upload_events WHERE ts>=? AND status='ok'`, since).Scan(&sum)
+	return sum, err
+}

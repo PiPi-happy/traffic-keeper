@@ -63,6 +63,16 @@ func (t *TunnelManager) UploadURL() string {
 	return t.url
 }
 
+// Enabled reports whether a tunnel is intended to be up. This is distinct from
+// UploadURL (which is "" while cloudflared is still negotiating a quick-tunnel
+// URL after a master restart): agents use it to back off instead of falling
+// back to a direct connection that GFW would RST during that window.
+func (t *TunnelManager) Enabled() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.enabled
+}
+
 func (t *TunnelManager) isInstalled() bool {
 	_, err := exec.LookPath("cloudflared")
 	if err != nil {

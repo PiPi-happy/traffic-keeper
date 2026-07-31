@@ -20,13 +20,15 @@ type Agent struct {
 
 // Policy is the per-agent upload schedule.
 type Policy struct {
-	AgentID     string
-	Enabled     bool
-	IntervalSec int
-	SizeMB      int // fixed size when range is unused
-	SizeMinMB   int // when SizeMaxMB>SizeMinMB, agent randomizes in [min,max]
-	SizeMaxMB   int
-	UpdatedAt   int64
+	AgentID        string
+	Enabled        bool
+	IntervalSec    int // fixed wait between uploads when range is unused
+	IntervalMinSec int // when IntervalMaxSec>IntervalMinSec, agent randomizes the wait in [min,max]
+	IntervalMaxSec int
+	SizeMB         int // fixed size when range is unused
+	SizeMinMB      int // when SizeMaxMB>SizeMinMB, agent randomizes in [min,max]
+	SizeMaxMB      int
+	UpdatedAt      int64
 }
 
 // Stats holds the accumulated upstream counters for an agent.

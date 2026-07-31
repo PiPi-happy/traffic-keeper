@@ -2,9 +2,13 @@ package agent
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -190,16 +194,95 @@ func TestStopRemove(t *testing.T) {
 // TestNormalizeServer: dedup key is scheme://host[:port], trailing slash trimmed.
 func TestNormalizeServer(t *testing.T) {
 	cases := map[string]string{
-		"https://m.example.com":      "https://m.example.com",
-		"https://m.example.com/":     "https://m.example.com",
-		"http://1.2.3.4:8080/x/y":    "http://1.2.3.4:8080",
+		"https://m.example.com":       "https://m.example.com",
+		"https://m.example.com/":      "https://m.example.com",
+		"http://1.2.3.4:8080/x/y":     "http://1.2.3.4:8080",
 		"https://x.trycloudflare.com": "https://x.trycloudflare.com",
-		"":                           "",
-		"not-a-url":                  "",
+		"":                            "",
+		"not-a-url":                   "",
 	}
 	for in, want := range cases {
 		if got := NormalizeServer(in); got != want {
 			t.Errorf("NormalizeServer(%q)=%q want %q", in, got, want)
 		}
+	}
+}
+
+// TestComputeInterval: fixed value passes through; a random range stays within
+// [min,max]; a zero interval yields zero (upload loop skips).
+func TestComputeInterval(t *testing.T) {
+	if got := computeInterval(policy{IntervalSec: 60}); got != 60 {
+		t.Fatalf("fixed interval: got %d", got)
+	}
+	if got := computeInterval(policy{IntervalSec: 0}); got != 0 {
+		t.Fatalf("zero interval should yield 0, got %d", got)
+	}
+	for i := 0; i < 200; i++ {
+		got := computeInterval(policy{IntervalMinSec: 5, IntervalMaxSec: 9})
+		if got < 5 || got > 9 {
+			t.Fatalf("random interval out of [5,9]: got %d", got)
+		}
+	}
+}
+
+// TestUploadSkipsWhenTunnelURLMissing: when a tunnel is enabled but its URL
+// isn't ready yet (master just restarted), the agent must skip the upload
+// rather than fall back to a direct connection that GFW would RST.
+func TestUploadSkipsWhenTunnelURLMissing(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/upload") {
+			hits.Add(1)
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+	}))
+	defer srv.Close()
+
+	c := &masterConn{server: srv.URL, agentID: "a1", secret: "x"}
+	c.mu.Lock()
+	c.policy = policy{Enabled: true, IntervalSec: 1, SizeMB: 1, TunnelEnabled: true, UploadURL: ""}
+	c.intervalSec = 1
+	c.mu.Unlock()
+
+	c.upload(context.Background(), &http.Client{Timeout: 2 * time.Second})
+
+	if hits.Load() != 0 {
+		t.Fatalf("agent should skip upload when tunnel URL is missing; got %d direct /upload hits", hits.Load())
+	}
+}
+
+// TestUploadFailureTriggersPolicyRefresh: a failing upload (stale tunnel URL)
+// triggers a policy refresh, throttled to once per 10s — three rapid failures
+// produce exactly one refresh.
+func TestUploadFailureTriggersPolicyRefresh(t *testing.T) {
+	var policyHits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/policy") {
+			policyHits.Add(1)
+			// upload_url points at an unreachable port so every upload fails fast.
+			_, _ = w.Write([]byte(`{"enabled":true,"interval_sec":1,"size_mb":1,"upload_url":"http://127.0.0.1:1","tunnel_enabled":false}`))
+			return
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+	}))
+	defer srv.Close()
+
+	c := &masterConn{server: srv.URL, agentID: "a1", secret: "x"}
+	c.mu.Lock()
+	c.policy = policy{Enabled: true, IntervalSec: 1, SizeMB: 1, UploadURL: "http://127.0.0.1:1"}
+	c.intervalSec = 1
+	c.mu.Unlock()
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	c.upload(context.Background(), client) // fail → triggers async refresh
+	c.upload(context.Background(), client) // fail → throttled
+	c.upload(context.Background(), client) // fail → throttled
+
+	dl := time.Now().Add(3 * time.Second)
+	for time.Now().Before(dl) && policyHits.Load() == 0 {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := policyHits.Load(); got != 1 {
+		t.Fatalf("expected exactly 1 throttled policy refresh after repeated failures, got %d", got)
 	}
 }

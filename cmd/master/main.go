@@ -63,6 +63,7 @@ func main() {
 	<-stop
 	log.Println("master shutting down...")
 	_ = httpSrv.Shutdown(context.Background())
+	srv.Stop() // cleanly stop cloudflared instead of letting systemd SIGKILL it
 }
 
 func envOr(key, def string) string {

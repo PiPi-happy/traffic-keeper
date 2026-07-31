@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Settings, FileText, Download, Upload, Trash2, Plus, RefreshCw, Lock, Cloud, LogOut, Globe,
+  LayoutDashboard, Server,
 } from 'lucide-vue-next'
 import VChart from 'vue-echarts'
 import 'echarts'
@@ -10,12 +11,18 @@ import {
   listNodes, createNode, updatePolicy, deleteNode,
   changePassword, getEvents, getInstallCommand, upgradeNode,
   getTunnel, enableTunnel, disableTunnel,
-  getGhProxy, setGhProxy,
+  getGhProxy, setGhProxy, getDashboard,
 } from '../api'
+
+const activeView = ref('dashboard') // 'dashboard' | 'nodes'
 
 const nodes = ref([])
 const latestVersion = ref('')
 const loading = ref(false)
+
+// dashboard aggregate (from /api/dashboard)
+const dash = ref(null)
+const dashLoading = ref(false)
 
 // new node
 const showNew = ref(false)
@@ -50,22 +57,11 @@ let tunnelTimer = null
 const showGhProxy = ref(false)
 const ghProxyForm = ref('')
 
-let timer = null
-
-// KPI aggregation
-const kpis = computed(() => {
-  const list = nodes.value
-  const online = list.filter((n) => n.online).length
-  const bytesUp = list.reduce((s, n) => s + (n.bytes_up || 0), 0)
-  const uploads = list.reduce((s, n) => s + (n.upload_count || 0), 0)
-  return { total: list.length, online, bytesUp, uploads }
-})
-
 function isOutdated(row) {
   return !!(row.version && latestVersion.value && row.version !== latestVersion.value)
 }
 
-async function load() {
+async function loadNodes() {
   loading.value = true
   try {
     const d = await listNodes()
@@ -78,6 +74,30 @@ async function load() {
   }
 }
 
+async function loadDashboard() {
+  dashLoading.value = true
+  try {
+    dash.value = await getDashboard()
+    if (dash.value.latest_version) latestVersion.value = dash.value.latest_version
+  } catch (e) {
+    ElMessage.error('加载仪表盘失败')
+  } finally {
+    dashLoading.value = false
+  }
+}
+
+// manual refresh only (no auto-refresh) — refreshes whichever view is active.
+async function load() {
+  if (activeView.value === 'dashboard') return loadDashboard()
+  return loadNodes()
+}
+
+function switchView(v) {
+  if (activeView.value === v) return
+  activeView.value = v
+  load()
+}
+
 async function create() {
   if (!newName.value.trim()) {
     ElMessage.warning('请填写名称')
@@ -86,7 +106,7 @@ async function create() {
   try {
     created.value = await createNode(newName.value.trim())
     newName.value = ''
-    load()
+    loadNodes()
   } catch (e) {
     ElMessage.error('创建失败')
   }
@@ -94,38 +114,46 @@ async function create() {
 
 function openPolicy(row) {
   const p = row.policy || {}
-  const isRandom = p.size_max_mb > p.size_min_mb
+  const isSizeRandom = p.size_max_mb > p.size_min_mb
+  const isIntervalRandom = p.interval_max_sec > p.interval_min_sec
   policyForm.value = {
     id: row.id,
     enabled: p.enabled !== false,
     interval_sec: p.interval_sec || 1800,
+    interval_min_sec: p.interval_min_sec || 0,
+    interval_max_sec: p.interval_max_sec || 0,
     size_mb: p.size_mb || 50,
     size_min_mb: p.size_min_mb || 0,
     size_max_mb: p.size_max_mb || 0,
-    trafficType: isRandom ? 'random' : 'fixed',
+    trafficType: isSizeRandom ? 'random' : 'fixed',
+    intervalType: isIntervalRandom ? 'random' : 'fixed',
   }
   showPolicy.value = true
 }
 
 async function savePolicy() {
   const f = policyForm.value
-  if (f.trafficType === 'random') {
-    if (!(f.size_max_mb > f.size_min_mb)) {
-      ElMessage.warning('随机区间需 max > min')
-      return
-    }
+  if (f.trafficType === 'random' && !(f.size_max_mb > f.size_min_mb)) {
+    ElMessage.warning('流量随机区间需 max > min')
+    return
+  }
+  if (f.intervalType === 'random' && !(f.interval_max_sec > f.interval_min_sec)) {
+    ElMessage.warning('间隔随机区间需 max > min')
+    return
   }
   try {
     await updatePolicy(f.id, {
       enabled: f.enabled,
       interval_sec: f.interval_sec,
+      interval_min_sec: f.intervalType === 'fixed' ? 0 : f.interval_min_sec,
+      interval_max_sec: f.intervalType === 'fixed' ? 0 : f.interval_max_sec,
       size_mb: f.size_mb,
       size_min_mb: f.trafficType === 'fixed' ? 0 : f.size_min_mb,
       size_max_mb: f.trafficType === 'fixed' ? 0 : f.size_max_mb,
     })
     showPolicy.value = false
     ElMessage.success('已保存')
-    load()
+    loadNodes()
   } catch (e) {
     ElMessage.error('保存失败：' + (e.response?.data || e.message))
   }
@@ -140,7 +168,7 @@ async function remove(row) {
   try {
     await deleteNode(row.id)
     ElMessage.success('已删除')
-    load()
+    loadNodes()
   } catch (e) {
     ElMessage.error('删除失败')
   }
@@ -208,6 +236,57 @@ const chartOption = computed(() => {
   }
 })
 
+// platform-wide 24h trend (from /api/dashboard hourly buckets)
+const dashChart = computed(() => {
+  const rows = (dash.value && dash.value.hourly) || []
+  const curHour = Math.floor(Date.now() / 1000 / 3600) * 3600
+  const map = {}
+  for (const r of rows) map[r.hour] = (map[r.hour] || 0) + r.bytes
+  const data = []
+  const labels = []
+  for (let i = 23; i >= 0; i--) {
+    data.push(map[curHour - i * 3600] || 0)
+    labels.push(i === 0 ? '现在' : `-${i}h`)
+  }
+  return {
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(15,23,42,0.92)',
+      borderWidth: 0,
+      textStyle: { color: '#e2e8f0', fontSize: 12 },
+      padding: [8, 12],
+      formatter: (p) => `${labels[p[0].dataIndex]}<br/>上行：${formatBytes(p[0].data)}`,
+    },
+    grid: { left: 56, right: 16, top: 16, bottom: 28 },
+    xAxis: {
+      type: 'category', data: labels,
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+      axisTick: { show: false },
+      axisLabel: { fontSize: 10, color: '#6b7280' },
+    },
+    yAxis: {
+      type: 'value',
+      splitLine: { lineStyle: { color: '#f1f5f9' } },
+      axisLabel: { fontSize: 10, color: '#6b7280', formatter: (v) => formatBytes(v) },
+    },
+    series: [{
+      type: 'line', smooth: true, data,
+      symbol: 'circle', symbolSize: 4,
+      areaStyle: { opacity: 0.15 },
+      lineStyle: { width: 2, color: '#2563eb' },
+      itemStyle: { color: '#2563eb' },
+    }],
+  }
+})
+
+const successRatePct = computed(() => {
+  const d = dash.value
+  if (!d) return '—'
+  const tot = (d.ok || 0) + (d.fail || 0)
+  if (!tot) return '—'
+  return (d.ok / tot * 100).toFixed(1) + '%'
+})
+
 async function openInstallCmd(row) {
   try {
     installCmd.value = await getInstallCommand(row.id)
@@ -230,7 +309,7 @@ async function upgrade(row) {
   try {
     await upgradeNode(row.id)
     ElMessage.success('已下发升级指令')
-    load()
+    loadNodes()
   } catch (e) {
     ElMessage.error('下发失败')
   }
@@ -322,10 +401,8 @@ function formatDuration(ms) {
 
 onMounted(() => {
   load()
-  timer = setInterval(load, 15000)
 })
 onUnmounted(() => {
-  clearInterval(timer)
   if (tunnelTimer) clearInterval(tunnelTimer)
 })
 </script>
@@ -339,7 +416,12 @@ onUnmounted(() => {
         <span class="brand-name">Traffic Keeper</span>
       </div>
       <nav class="nav">
-        <div class="nav-item active"><FileText :size="16" :stroke-width="1.5" /><span>节点</span></div>
+        <div class="nav-item" :class="{ active: activeView === 'dashboard' }" @click="switchView('dashboard')">
+          <LayoutDashboard :size="16" :stroke-width="1.5" /><span>仪表盘</span>
+        </div>
+        <div class="nav-item" :class="{ active: activeView === 'nodes' }" @click="switchView('nodes')">
+          <Server :size="16" :stroke-width="1.5" /><span>节点管理</span>
+        </div>
       </nav>
       <div class="sidebar-foot">
         <span v-if="latestVersion" class="muted small">最新版本 {{ latestVersion }}</span>
@@ -349,14 +431,8 @@ onUnmounted(() => {
     <!-- main -->
     <div class="main">
       <header class="topbar">
-        <div class="topbar-title">节点管理</div>
+        <div class="topbar-title">{{ activeView === 'dashboard' ? '仪表盘' : '节点管理' }}</div>
         <div class="topbar-actions">
-          <el-button type="primary" @click="showNew = true">
-            <Plus :size="15" :stroke-width="1.5" /><span>新建节点</span>
-          </el-button>
-          <el-button :loading="loading" @click="load">
-            <RefreshCw :size="15" :stroke-width="1.5" /><span>刷新</span>
-          </el-button>
           <el-tooltip content="Cloudflare Tunnel" placement="bottom">
             <el-button text :class="{ 'tunnel-on': tunnel.enabled }" @click="openTunnel">
               <Cloud :size="16" :stroke-width="1.5" />
@@ -375,91 +451,128 @@ onUnmounted(() => {
       </header>
 
       <main class="content">
-        <!-- KPI row -->
-        <div class="kpi-row">
-          <div class="kpi-card">
-            <div class="kpi-label">在线节点</div>
-            <div class="kpi-value">{{ kpis.online }}<span class="kpi-sub"> / {{ kpis.total }}</span></div>
+        <!-- dashboard view -->
+        <div v-if="activeView === 'dashboard'" v-loading="dashLoading">
+          <div class="kpi-row">
+            <div class="kpi-card">
+              <div class="kpi-label">在线节点</div>
+              <div class="kpi-value">{{ dash?.online ?? 0 }}<span class="kpi-sub"> / {{ dash?.total ?? 0 }}</span></div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">累计上行</div>
+              <div class="kpi-value">{{ formatBytes(dash?.bytes_up || 0) }}</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">上传次数</div>
+              <div class="kpi-value">{{ dash?.uploads || 0 }}</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">平均速率 (近1h)</div>
+              <div class="kpi-value sm">{{ formatBytes(Math.round(dash?.rate_per_sec || 0)) }}/s</div>
+            </div>
           </div>
-          <div class="kpi-card">
-            <div class="kpi-label">累计上行</div>
-            <div class="kpi-value">{{ formatBytes(kpis.bytesUp) }}</div>
+
+          <div class="dash-card">
+            <div class="dash-card-head">
+              <div class="dash-card-title">24 小时上行趋势</div>
+              <div class="muted small">成功 {{ dash?.ok || 0 }} · 失败 {{ dash?.fail || 0 }} · 成功率 {{ successRatePct }}</div>
+            </div>
+            <v-chart :option="dashChart" autoresize style="height:280px" />
           </div>
-          <div class="kpi-card">
-            <div class="kpi-label">上传次数</div>
-            <div class="kpi-value">{{ kpis.uploads }}</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">最新版本</div>
-            <div class="kpi-value sm">{{ latestVersion || '—' }}</div>
+
+          <div class="dash-card">
+            <div class="dash-card-title" style="margin-bottom:12px">各地区节点分布</div>
+            <el-table :data="dash?.regions || []" size="small" empty-text="暂无节点">
+              <el-table-column label="地区" width="140">
+                <template #default="{ row }">{{ row.country === '?' ? '未知' : (row.country || '—') }}</template>
+              </el-table-column>
+              <el-table-column prop="nodes" label="节点数" width="120" />
+              <el-table-column label="累计上行">
+                <template #default="{ row }">{{ formatBytes(row.bytes_up) }}</template>
+              </el-table-column>
+            </el-table>
           </div>
         </div>
 
-        <!-- table card -->
-        <div class="table-card">
-          <el-table :data="nodes" v-loading="loading" stripe>
-            <el-table-column prop="name" label="名称" min-width="120" />
-            <el-table-column label="状态" width="90">
-              <template #default="{ row }">
-                <el-tag :type="row.online ? 'success' : 'info'" size="small">
-                  {{ row.online ? '在线' : '离线' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="地区" width="80">
-              <template #default="{ row }">{{ row.country || '—' }}</template>
-            </el-table-column>
-            <el-table-column label="版本" width="100">
-              <template #default="{ row }">
-                <el-tooltip v-if="isOutdated(row)" :content="`过时，最新 ${latestVersion}`" placement="top">
-                  <span class="outdated">{{ row.version || '—' }}</span>
-                </el-tooltip>
-                <span v-else>{{ row.version || '—' }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="累计上行" min-width="110">
-              <template #default="{ row }">{{ formatBytes(row.bytes_up) }}</template>
-            </el-table-column>
-            <el-table-column prop="upload_count" label="次数" width="80" />
-            <el-table-column label="策略" min-width="190">
-              <template #default="{ row }">
-                <template v-if="row.policy">
-                  {{ row.policy.interval_sec }}s /
-                  <template v-if="row.policy.size_max_mb > row.policy.size_min_mb">
-                    {{ row.policy.size_min_mb }}~{{ row.policy.size_max_mb }}MB(随机)
-                  </template>
-                  <template v-else>{{ row.policy.size_mb }}MB</template>
-                  <el-tag size="small" :type="row.policy.enabled ? 'success' : 'danger'" style="margin-left:4px">
-                    {{ row.policy.enabled ? '启用' : '暂停' }}
+        <!-- nodes view -->
+        <div v-else>
+          <div class="table-toolbar">
+            <el-button type="primary" @click="showNew = true">
+              <Plus :size="15" :stroke-width="1.5" /><span>新建节点</span>
+            </el-button>
+            <el-button :loading="loading" @click="load">
+              <RefreshCw :size="15" :stroke-width="1.5" /><span>刷新</span>
+            </el-button>
+          </div>
+          <div class="table-card">
+            <el-table :data="nodes" v-loading="loading" stripe>
+              <el-table-column prop="name" label="名称" min-width="130" />
+              <el-table-column label="状态" width="90">
+                <template #default="{ row }">
+                  <el-tag :type="row.online ? 'success' : 'info'" size="small">
+                    {{ row.online ? '在线' : '离线' }}
                   </el-tag>
                 </template>
-              </template>
-            </el-table-column>
-            <el-table-column label="最后心跳" width="170">
-              <template #default="{ row }">{{ formatTime(row.last_seen_at) }}</template>
-            </el-table-column>
-            <el-table-column label="操作" width="230">
-              <template #default="{ row }">
-                <el-tooltip content="策略" placement="top">
-                  <el-button size="small" circle @click="openPolicy(row)"><Settings :size="15" :stroke-width="1.5" /></el-button>
-                </el-tooltip>
-                <el-tooltip content="日志(24h曲线)" placement="top">
-                  <el-button size="small" circle @click="openEvents(row)"><FileText :size="15" :stroke-width="1.5" /></el-button>
-                </el-tooltip>
-                <el-tooltip content="安装命令" placement="top">
-                  <el-button size="small" circle @click="openInstallCmd(row)"><Download :size="15" :stroke-width="1.5" /></el-button>
-                </el-tooltip>
-                <el-tooltip :content="row.pending_upgrade ? '升级中…' : (isOutdated(row) ? `升级到 ${latestVersion}` : '升级')" placement="top">
-                  <el-button size="small" circle :type="isOutdated(row) ? 'warning' : ''" :loading="!!row.pending_upgrade" @click="upgrade(row)">
-                    <Upload :size="15" :stroke-width="1.5" />
-                  </el-button>
-                </el-tooltip>
-                <el-tooltip content="删除" placement="top">
-                  <el-button size="small" circle type="danger" @click="remove(row)"><Trash2 :size="15" :stroke-width="1.5" /></el-button>
-                </el-tooltip>
-              </template>
-            </el-table-column>
-          </el-table>
+              </el-table-column>
+              <el-table-column label="地区" width="80">
+                <template #default="{ row }">{{ row.country || '—' }}</template>
+              </el-table-column>
+              <el-table-column label="版本" width="110">
+                <template #default="{ row }">
+                  <el-tooltip v-if="isOutdated(row)" :content="`过时，最新 ${latestVersion}`" placement="top">
+                    <span class="outdated">{{ row.version || '—' }}</span>
+                  </el-tooltip>
+                  <span v-else>{{ row.version || '—' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="累计上行" min-width="120">
+                <template #default="{ row }">{{ formatBytes(row.bytes_up) }}</template>
+              </el-table-column>
+              <el-table-column prop="upload_count" label="次数" width="90" />
+              <el-table-column label="策略" min-width="230">
+                <template #default="{ row }">
+                  <template v-if="row.policy">
+                    <template v-if="row.policy.interval_max_sec > row.policy.interval_min_sec">
+                      {{ row.policy.interval_min_sec }}~{{ row.policy.interval_max_sec }}s(随机)
+                    </template>
+                    <template v-else>{{ row.policy.interval_sec }}s</template>
+                    /
+                    <template v-if="row.policy.size_max_mb > row.policy.size_min_mb">
+                      {{ row.policy.size_min_mb }}~{{ row.policy.size_max_mb }}MB(随机)
+                    </template>
+                    <template v-else>{{ row.policy.size_mb }}MB</template>
+                    <el-tag size="small" :type="row.policy.enabled ? 'success' : 'danger'" style="margin-left:4px">
+                      {{ row.policy.enabled ? '启用' : '暂停' }}
+                    </el-tag>
+                  </template>
+                </template>
+              </el-table-column>
+              <el-table-column label="最后心跳" width="170">
+                <template #default="{ row }">{{ formatTime(row.last_seen_at) }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="230">
+                <template #default="{ row }">
+                  <el-tooltip content="策略" placement="top">
+                    <el-button size="small" circle @click="openPolicy(row)"><Settings :size="15" :stroke-width="1.5" /></el-button>
+                  </el-tooltip>
+                  <el-tooltip content="日志(24h曲线)" placement="top">
+                    <el-button size="small" circle @click="openEvents(row)"><FileText :size="15" :stroke-width="1.5" /></el-button>
+                  </el-tooltip>
+                  <el-tooltip content="安装命令" placement="top">
+                    <el-button size="small" circle @click="openInstallCmd(row)"><Download :size="15" :stroke-width="1.5" /></el-button>
+                  </el-tooltip>
+                  <el-tooltip :content="row.pending_upgrade ? '升级中…' : (isOutdated(row) ? `升级到 ${latestVersion}` : '升级')" placement="top">
+                    <el-button size="small" circle :type="isOutdated(row) ? 'warning' : ''" :loading="!!row.pending_upgrade" @click="upgrade(row)">
+                      <Upload :size="15" :stroke-width="1.5" />
+                    </el-button>
+                  </el-tooltip>
+                  <el-tooltip content="删除" placement="top">
+                    <el-button size="small" circle type="danger" @click="remove(row)"><Trash2 :size="15" :stroke-width="1.5" /></el-button>
+                  </el-tooltip>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
         </div>
       </main>
     </div>
@@ -488,8 +601,20 @@ onUnmounted(() => {
         <el-form-item label="启用上传">
           <el-switch v-model="policyForm.enabled" />
         </el-form-item>
-        <el-form-item label="间隔">
+        <el-form-item label="间隔类型">
+          <el-segmented
+            v-model="policyForm.intervalType"
+            :options="[{ label: '固定', value: 'fixed' }, { label: '随机', value: 'random' }]"
+          />
+        </el-form-item>
+        <el-form-item v-if="policyForm.intervalType === 'fixed'" label="固定间隔">
           <el-input-number v-model="policyForm.interval_sec" :min="10" :step="30" /> 秒
+        </el-form-item>
+        <el-form-item v-else label="随机间隔">
+          <el-input-number v-model="policyForm.interval_min_sec" :min="0" :step="30" size="small" />
+          <span style="margin: 0 8px">~</span>
+          <el-input-number v-model="policyForm.interval_max_sec" :min="0" :step="30" size="small" /> 秒
+          <div class="muted small">每次上传后，在 min~max 秒间随机等待</div>
         </el-form-item>
         <el-form-item label="流量类型">
           <el-segmented
@@ -647,7 +772,12 @@ onUnmounted(() => {
   border-radius: var(--tk-radius-btn);
   font-size: 14px;
   color: #94a3b8;
+  cursor: pointer;
   transition: all var(--tk-transition);
+}
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
 }
 .nav-item.active {
   background: rgba(255, 255, 255, 0.08);
@@ -685,18 +815,15 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
 }
-.topbar-actions .el-button span {
-  margin-left: 4px;
-}
 .tunnel-on {
   color: var(--tk-green) !important;
 }
 
-/* content */
+/* content — widened (was max-width 1200px) so the table breathes */
 .content {
   flex: 1;
-  max-width: 1200px;
   width: 100%;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 24px;
 }
@@ -735,6 +862,38 @@ onUnmounted(() => {
   font-size: 15px;
   font-weight: 500;
   color: var(--tk-text-muted);
+}
+
+/* dashboard cards */
+.dash-card {
+  background: var(--tk-bg);
+  border-radius: var(--tk-radius-card);
+  box-shadow: var(--tk-shadow-sm);
+  padding: 18px 20px;
+  margin-bottom: 20px;
+}
+.dash-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.dash-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--tk-text-strong);
+}
+
+/* table toolbar (new/refresh moved here from the topbar) */
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.table-toolbar .el-button span {
+  margin-left: 4px;
 }
 
 /* table card */

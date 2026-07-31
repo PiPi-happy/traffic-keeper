@@ -59,7 +59,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/healthz", s.handleHealth)
 	s.mux.HandleFunc("/upload/", s.handleUpload) // data plane
 
-	s.mux.HandleFunc("/api/agent/", s.handleAgent)              // agent-facing dispatcher
+	s.mux.HandleFunc("/api/agent/", s.handleAgent) // agent-facing dispatcher
 	s.mux.HandleFunc("/api/login", s.handleLogin)
 	s.mux.HandleFunc("/api/password", s.requireAdmin(s.handleChangePassword))
 	s.mux.HandleFunc("/api/nodes", s.requireAdmin(s.handleNodes))
@@ -67,6 +67,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/tunnel", s.requireAdmin(s.handleTunnel))
 	s.mux.HandleFunc("/api/tunnel/disable", s.requireAdmin(s.handleTunnelDisable))
 	s.mux.HandleFunc("/api/gh-proxy", s.requireAdmin(s.handleGhProxy))
+	s.mux.HandleFunc("/api/dashboard", s.requireAdmin(s.handleDashboard))
 
 	// SPA frontend (embedded). More specific routes above take precedence.
 	s.mux.Handle("/", web.Handler())
@@ -75,6 +76,14 @@ func (s *Server) routes() {
 // ServeHTTP dispatches requests to the registered routes.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
+}
+
+// Stop tears down server-managed subprocesses (the cloudflared tunnel) so they
+// exit cleanly instead of being SIGKILLed by the cgroup on process exit — a
+// hard kill leaves half-dead connections that agents read as EOF during the
+// restart window.
+func (s *Server) Stop() {
+	s.tunnel.Disable()
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

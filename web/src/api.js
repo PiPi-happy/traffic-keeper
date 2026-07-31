@@ -29,6 +29,11 @@ export async function listNodes() {
   return data // { nodes, latest_version }
 }
 
+export async function getDashboard() {
+  const { data } = await api.get('/api/dashboard')
+  return data
+}
+
 export async function createNode(name) {
   const { data } = await api.post('/api/nodes', { name })
   return data

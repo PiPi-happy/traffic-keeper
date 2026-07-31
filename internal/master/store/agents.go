@@ -43,7 +43,7 @@ func (s *Store) CreateAgent(ctx context.Context, a Agent) error {
 		return fmt.Errorf("create agent: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO policies (agent_id, enabled, interval_sec, size_mb, size_min_mb, size_max_mb, updated_at) VALUES (?,1,1800,50,0,0,?)`,
+		`INSERT INTO policies (agent_id, enabled, interval_sec, interval_min_sec, interval_max_sec, size_mb, size_min_mb, size_max_mb, updated_at) VALUES (?,1,1800,0,0,50,0,0,?)`,
 		a.ID, now()); err != nil {
 		return fmt.Errorf("seed policy: %w", err)
 	}
