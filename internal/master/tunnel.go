@@ -129,7 +129,10 @@ func (t *TunnelManager) Enable(ctx context.Context) error {
 	}
 
 	t.appendLog("启动 quick tunnel（指向 " + tunnelTarget + "）...")
-	cmd := exec.Command(cloudflaredBinary, "tunnel", "--url", tunnelTarget, "--no-autoupdate")
+	// Force QUIC (UDP) — it handles international packet loss far better than
+	// HTTP/2; cloudflared otherwise conservatively degrades to HTTP/2 when any
+	// region's QUIC probe fails, which makes the tunnel too slow (CF 524).
+	cmd := exec.Command(cloudflaredBinary, "tunnel", "--url", tunnelTarget, "--no-autoupdate", "--protocol", "quic")
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		t.appendLog("启动失败: " + err.Error())
