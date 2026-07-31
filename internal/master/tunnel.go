@@ -365,7 +365,7 @@ func (s *Server) handleEdgeTest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	s.tunnel.RunProbeAsync(r.Context(), s.store)
+	s.tunnel.RunProbeAsync(context.Background(), s.store) // not r.Context(): probe outlives the request
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

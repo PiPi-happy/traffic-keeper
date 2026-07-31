@@ -3,6 +3,7 @@ package master
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -47,5 +48,25 @@ func TestDetectCurrentEdgeIP(t *testing.T) {
 	}
 	if got := detectCurrentEdgeIP([]string{"no edge here"}); got != "" {
 		t.Fatalf("expected empty, got %q", got)
+	}
+}
+
+func TestSampleCIDRAvoidsNetworkAddr(t *testing.T) {
+	// big CIDR: step is a multiple of 256, so naive step*k lands on .0
+	ips := sampleCIDR("104.16.0.0/20", 4)
+	if len(ips) == 0 {
+		t.Fatal("no samples")
+	}
+	for _, ip := range ips {
+		parts := strings.Split(ip, ".")
+		if len(parts) != 4 {
+			t.Fatalf("bad ip %q", ip)
+		}
+		if parts[3] == "0" {
+			t.Fatalf("sampled network address .0 (often unreachable): %s", ip)
+		}
+		if !strings.HasPrefix(ip, "104.16.") {
+			t.Fatalf("ip %q out of cidr", ip)
+		}
 	}
 }

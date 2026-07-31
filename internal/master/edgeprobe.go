@@ -202,9 +202,17 @@ func sampleCIDR(cidr string, n int) []string {
 	if n > 0 && uint64(n) < total {
 		step = total / uint64(n)
 	}
+	// step is a multiple of 256 for big CIDRs, so step*k lands on a .0 network
+	// address (often unreachable). Add a varied 1..250 offset per sample to hit
+	// real host IPs.
 	var out []string
-	for i := step; i < total && len(out) < n; i += step {
-		x := base + uint32(i)
+	for k := 0; k < n; k++ {
+		o := uint64(k*79%250 + 1)
+		idx := step*uint64(k) + o
+		if idx >= total {
+			break
+		}
+		x := base + uint32(idx)
 		out = append(out, fmt.Sprintf("%d.%d.%d.%d", x>>24&0xff, x>>16&0xff, x>>8&0xff, x&0xff))
 	}
 	return out
