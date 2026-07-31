@@ -117,6 +117,17 @@ traffic-keeper-agent remove <server>                    # 删除一个 master
 - 上传日志标明目标地址（`uploaded N to https://xxx.trycloudflare.com/upload/<id>` 或 IP），一眼看出是否走了 tunnel。
 - 每个 master 在服务端是一个独立 agent（各自统计/策略/升级），互不影响。
 
+## 一键管理脚本
+
+`deploy/manage.sh` 提供交互式数字菜单，集成 master / agent 的安装、更新、卸载：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/PiPi-happy/traffic-keeper/main/deploy/manage.sh | bash
+# 或下载后: sudo ./deploy/manage.sh
+```
+
+菜单含：安装/更新/卸载 Master、安装/更新/卸载 Agent。自动检测本机已装组件并显示运行状态；国内默认走 gh-proxy 下载，`GHPROXY=` 可换镜像或留空直连。也支持非交互：`sudo ./manage.sh update-master`、`sudo ./manage.sh uninstall-agent` 等。
+
 ## 开发
 
 ```bash
