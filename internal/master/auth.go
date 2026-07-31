@@ -23,6 +23,7 @@ const (
 	settingTunnelEdgeMode = "tunnel_edge_mode" // "off" | "auto" | "manual"
 	settingTunnelEdgeIP   = "tunnel_edge_ip"   // manual/auto: applied edge IP
 	settingCFCIDRs        = "cf_cidrs_cache"   // cached cloudflare.com/ips-v4
+	settingTunnelProtocol = "tunnel_protocol"  // "http2" | "quic"
 )
 
 func randomHex(n int) string {

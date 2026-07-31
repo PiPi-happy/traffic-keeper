@@ -50,10 +50,13 @@ type TunnelManager struct {
 	probeRunning   bool
 	probeAt        time.Time
 	edgeHistory    []EdgeSwitch
+	protocolMode   string // "http2" | "quic" — cloudflared --protocol
 }
 
 func newTunnelManager() *TunnelManager {
-	return &TunnelManager{}
+	// Default to http2 (TCP 443): verified ~20x faster than QUIC under current
+	// GFW interference on UDP 7874. See Enable().
+	return &TunnelManager{protocolMode: "http2"}
 }
 
 // Status returns a snapshot for the panel.
@@ -65,6 +68,10 @@ func (t *TunnelManager) Status() map[string]any {
 	mode := t.edgeMode
 	if mode == "" {
 		mode = "off"
+	}
+	proto := t.protocolMode
+	if proto == "" {
+		proto = "http2"
 	}
 	currentEdge := detectCurrentEdgeIP(logs)
 	edgeSource := "log"
@@ -85,6 +92,7 @@ func (t *TunnelManager) Status() map[string]any {
 		"installed":           t.isInstalled(),
 		"logs":                logs,
 		"edge_mode":           mode,
+		"protocol":            proto,
 		"configured_edge":     t.configuredEdge,
 		"current_edge":        currentEdge,
 		"current_edge_source": edgeSource,
@@ -175,18 +183,25 @@ func (t *TunnelManager) Enable(ctx context.Context) error {
 		return fmt.Errorf("tunnel already enabled")
 	}
 	edge := t.configuredEdge
+	proto := t.protocolMode
 	t.mu.Unlock()
+	if proto == "" {
+		proto = "http2"
+	}
 
 	if err := t.Install(ctx); err != nil {
 		return err
 	}
 
-	t.appendLog("启动 quick tunnel（指向 " + tunnelTarget + "）...")
-	// Force QUIC (UDP) — it handles international packet loss far better than
-	// HTTP/2; cloudflared otherwise conservatively degrades to HTTP/2 when any
-	// region's QUIC probe fails, which makes the tunnel too slow (CF 524).
-	args := []string{"tunnel", "--url", tunnelTarget, "--no-autoupdate", "--protocol", "quic"}
-	if edge != "" {
+	t.appendLog("启动 quick tunnel（指向 " + tunnelTarget + "，协议 " + proto + "）...")
+	// http2 (TCP 443) by default — verified ~20x faster than QUIC under the
+	// current GFW interference on UDP 7874 (QUIC degrades to ~55KB/s & 524s;
+	// http2 does ~1.1MB/s). cloudflared otherwise auto-degrades conservatively;
+	// pinning the protocol avoids that.
+	args := []string{"tunnel", "--url", tunnelTarget, "--no-autoupdate", "--protocol", proto}
+	// --edge (优选 IP) only helps QUIC; http2 on TCP 443 is already fast and
+	// doesn't use the QUIC edge port, so don't pin an edge under http2.
+	if proto == "quic" && edge != "" {
 		args = append(args, "--edge", edge+":7844")
 		t.appendLog("优选 edge IP: " + edge + " (--edge " + edge + ":7844)")
 	}
