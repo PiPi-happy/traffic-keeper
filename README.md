@@ -129,8 +129,9 @@ go run ./cmd/agent  # 本地跑 agent
 
 ## 功能与路线
 
-**已完成（v0.8.0）**：
+**已完成（v0.9.2）**：
 - Agent 注册 / 心跳 / 上传（心跳、拉策略、上传三个独立 goroutine，上传再慢也不会被判离线）
+- **Cloudflare Tunnel 默认 http2（v0.9.2）**：线上实测 GFW 现严重干扰 UDP 7874(quic)，http2(TCP 443) 快 ~20x——quic 5MB/95s 超时 vs http2 5MB/4.6s（agent 实战 620KB/s）；附优选 IP 探针（仅 quic 模式辅助，http2 不需要）
 - 面板（acme 设计系统 / Inter / lucide 图标）：节点表（在线/地区/版本/累计上行/策略）、策略编辑（固定/随机 **流量大小与上传间隔** segmented）、一键生成安装命令、密码修改、24h 上传曲线 + 详情
 - **仪表盘页**：左侧导航新增仪表盘（在线/累计上行/上传次数/平均速率 KPI、24h 全台上行趋势曲线、上传成功率、各地区节点分布）；节点列表加宽占满、移除自动刷新改为手动、新建/刷新按钮上移
 - **随机上传间隔**：策略支持固定/随机间隔（每次上传后在 min~max 秒间随机等待），与流量大小随机同理
@@ -145,7 +146,7 @@ go run ./cmd/agent  # 本地跑 agent
 
 ## 状态
 
-✅ 稳定运行中 —— 最新 [v0.8.0](https://github.com/PiPi-happy/traffic-keeper/releases/latest)。
+✅ 稳定运行中 —— 最新 [v0.9.2](https://github.com/PiPi-happy/traffic-keeper/releases/latest)。
 
 ## License
 
