@@ -16,10 +16,13 @@ import (
 )
 
 const (
-	sessionTTL           = 24 * time.Hour
-	settingAdminPassword = "admin_password_hash"
-	settingTunnelEnabled = "tunnel_enabled"
-	settingGhProxy       = "gh_proxy"
+	sessionTTL            = 24 * time.Hour
+	settingAdminPassword  = "admin_password_hash"
+	settingTunnelEnabled  = "tunnel_enabled"
+	settingGhProxy        = "gh_proxy"
+	settingTunnelEdgeMode = "tunnel_edge_mode" // "off" | "auto" | "manual"
+	settingTunnelEdgeIP   = "tunnel_edge_ip"   // manual/auto: applied edge IP
+	settingCFCIDRs        = "cf_cidrs_cache"   // cached cloudflare.com/ips-v4
 )
 
 func randomHex(n int) string {

@@ -79,6 +79,16 @@ export async function disableTunnel() {
   await api.post('/api/tunnel/disable')
 }
 
+export async function testTunnelEdge() {
+  await api.post('/api/tunnel/edge/test')
+}
+
+export async function applyTunnelEdge(payload) {
+  // payload: { ip } and/or { mode: 'off'|'auto'|'manual' }
+  const { data } = await api.post('/api/tunnel/edge/apply', payload)
+  return data
+}
+
 export async function getGhProxy() {
   const { data } = await api.get('/api/gh-proxy')
   return data.gh_proxy

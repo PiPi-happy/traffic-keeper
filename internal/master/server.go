@@ -66,6 +66,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/nodes/", s.requireAdmin(s.handleNode)) // node-specific dispatcher
 	s.mux.HandleFunc("/api/tunnel", s.requireAdmin(s.handleTunnel))
 	s.mux.HandleFunc("/api/tunnel/disable", s.requireAdmin(s.handleTunnelDisable))
+	s.mux.HandleFunc("/api/tunnel/edge/test", s.requireAdmin(s.handleEdgeTest))
+	s.mux.HandleFunc("/api/tunnel/edge/apply", s.requireAdmin(s.handleEdgeApply))
 	s.mux.HandleFunc("/api/gh-proxy", s.requireAdmin(s.handleGhProxy))
 	s.mux.HandleFunc("/api/dashboard", s.requireAdmin(s.handleDashboard))
 

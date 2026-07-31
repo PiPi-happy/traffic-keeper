@@ -11,6 +11,7 @@ import {
   listNodes, createNode, updatePolicy, deleteNode,
   changePassword, getEvents, getInstallCommand, upgradeNode,
   getTunnel, enableTunnel, disableTunnel,
+  testTunnelEdge, applyTunnelEdge,
   getGhProxy, setGhProxy, getDashboard,
 } from '../api'
 
@@ -375,6 +376,30 @@ async function toggleTunnel() {
     ElMessage.error('操作失败')
   }
 }
+async function doEdgeTest() {
+  try {
+    await testTunnelEdge()
+    ElMessage.success('已开始测速，结果随轮询刷新')
+  } catch (e) {
+    ElMessage.error('测速失败')
+  }
+}
+async function applyEdgeIP(ip) {
+  try {
+    await applyTunnelEdge({ ip })
+    ElMessage.success('已应用 ' + ip + '（重启 cloudflared 生效）')
+  } catch (e) {
+    ElMessage.error('应用失败：' + (e.response?.data || e.message))
+  }
+}
+async function setEdgeMode(mode) {
+  try {
+    await applyTunnelEdge({ mode })
+    ElMessage.success(mode === 'off' ? '已关闭优选' : '已切到手动优选')
+  } catch (e) {
+    ElMessage.error('设置失败')
+  }
+}
 
 function copyText(text) {
   navigator.clipboard.writeText(text)
@@ -700,6 +725,42 @@ onUnmounted(() => {
         <el-button text type="primary" size="small" @click="copyText(tunnel.url)">复制</el-button>
       </div>
       <div v-else-if="tunnel.enabled" class="muted" style="margin-top:8px">正在等待分配 trycloudflare 地址……</div>
+
+      <!-- 优选 Edge IP -->
+      <div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--tk-border)">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px">
+          <span style="font-weight:600">优选 Edge IP</span>
+          <el-segmented :model-value="tunnel.edge_mode || 'off'" :options="[{ label: '关', value: 'off' }, { label: '手动', value: 'manual' }]" @update:model-value="setEdgeMode" size="small" />
+          <el-button size="small" type="primary" :loading="tunnel.probe_running" @click="doEdgeTest" style="margin-left:auto">
+            {{ tunnel.probe_running ? '测速中…' : '立即测速' }}
+          </el-button>
+        </div>
+        <div class="muted small">
+          当前 edge：<b>{{ tunnel.current_edge || '—' }}</b><span v-if="tunnel.current_latency_ms">（{{ tunnel.current_latency_ms }}ms）</span>
+          <span style="margin-left:8px">配置：<b>{{ tunnel.configured_edge || '自动(默认)' }}</b></span>
+        </div>
+        <el-table v-if="tunnel.probe_results && tunnel.probe_results.length" :data="tunnel.probe_results.slice(0, 10)" size="small" style="margin-top:8px" max-height="220">
+          <el-table-column label="IP" prop="ip" min-width="120" />
+          <el-table-column label="延迟" width="90"><template #default="{ row }">{{ row.latency_ms ? row.latency_ms + 'ms' : '—' }}</template></el-table-column>
+          <el-table-column label="抖动" width="80"><template #default="{ row }">{{ row.jitter_ms ? row.jitter_ms + 'ms' : '—' }}</template></el-table-column>
+          <el-table-column label="丢包" width="80">
+            <template #default="{ row }">
+              <span :style="{ color: row.loss_pct >= 100 ? 'var(--tk-red)' : (row.loss_pct > 0 ? 'var(--tk-orange)' : '') }">{{ row.loss_pct.toFixed(0) }}%</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="80">
+            <template #default="{ row }">
+              <el-button size="small" link type="primary" :disabled="row.loss_pct >= 100" @click="applyEdgeIP(row.ip)">应用</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div v-else class="muted small" style="margin-top:8px">点「立即测速」找出对国内最优的 CF edge IP，再「应用」让 cloudflared 走它（应用会重启 cloudflared、换 trycloudflare 地址，agent 会自动跟随）。</div>
+        <div v-if="tunnel.edge_history && tunnel.edge_history.length" class="muted small" style="margin-top:8px">
+          近期切换：
+          <span v-for="(h, i) in tunnel.edge_history.slice(-5).reverse()" :key="i" style="margin-right:6px">{{ h.from || '∅' }}→{{ h.to || '∅' }}</span>
+        </div>
+      </div>
+
       <p class="muted" style="margin-top:12px">安装 / 连接日志：</p>
       <div ref="logBox" class="tunnel-log">
         <div v-for="(l, i) in tunnel.logs" :key="i" class="log-line">{{ l }}</div>
