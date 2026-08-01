@@ -9,6 +9,22 @@ const api = axios.create({ baseURL: '' })
 const _saved = localStorage.getItem('tk_token')
 if (_saved) api.defaults.headers.common['Authorization'] = 'Bearer ' + _saved
 
+// token 过期/无效（API 返回 401）时自动回登录页，而不是卡住或刷"加载失败"。
+// 仅当本机已存 token 时触发——登录请求本身的 401 是密码错误，不跳转。
+let redirecting = false
+api.interceptors.response.use(
+  (resp) => resp,
+  (err) => {
+    if (err.response && err.response.status === 401 && localStorage.getItem('tk_token') && !redirecting) {
+      redirecting = true
+      localStorage.removeItem('tk_token')
+      location.reload()              // App.vue 见无 token 即显示 Login
+      return new Promise(() => {})   // 挂起，阻止调用方 catch 弹"加载失败"
+    }
+    return Promise.reject(err)
+  },
+)
+
 export function setToken(token) {
   if (token) {
     api.defaults.headers.common['Authorization'] = 'Bearer ' + token
