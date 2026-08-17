@@ -127,6 +127,12 @@ const eventRetention = 3 * 24 * time.Hour
 
 func (s *Server) startCleaners() {
 	go s.cleanUploadEvents()
+	// Self-heal loop watches for a cloudflared that's alive but rejected by
+	// the CF edge (quick tunnel deregistered) and restarts it for a fresh
+	// URL. context.Background(): tied to the process, not any request.
+	go s.tunnel.SelfHealLoop(context.Background())
+	// Upload-health sentinel: flag online agents that stopped uploading.
+	go s.watchUploadHealth()
 }
 
 func (s *Server) cleanUploadEvents() {

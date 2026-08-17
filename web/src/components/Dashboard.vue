@@ -62,6 +62,13 @@ function isOutdated(row) {
   return !!(row.version && latestVersion.value && row.version !== latestVersion.value)
 }
 
+// "在线·停滞"角标文案：在线但超过阈值没上传成功（如 tunnel 断链）
+function staleLabel(row) {
+  const sec = row.upload_stale_sec || 0
+  if (sec >= 3600) return `停滞${Math.floor(sec / 3600)}h${Math.floor((sec % 3600) / 60)}m`
+  return `停滞${Math.max(1, Math.floor(sec / 60))}m`
+}
+
 async function loadNodes() {
   loading.value = true
   try {
@@ -532,9 +539,16 @@ onUnmounted(() => {
           <div class="table-card">
             <el-table :data="nodes" v-loading="loading" stripe>
               <el-table-column prop="name" label="名称" min-width="130" />
-              <el-table-column label="状态" width="90">
+              <el-table-column label="状态" width="120">
                 <template #default="{ row }">
-                  <el-tag :type="row.online ? 'success' : 'info'" size="small">
+                  <el-tooltip
+                    v-if="row.online && row.upload_stale"
+                    content="心跳正常但长时间无成功上传——数据链路可能故障（如 tunnel 断链）"
+                    placement="top"
+                  >
+                    <el-tag type="warning" size="small">在线·{{ staleLabel(row) }}</el-tag>
+                  </el-tooltip>
+                  <el-tag v-else :type="row.online ? 'success' : 'info'" size="small">
                     {{ row.online ? '在线' : '离线' }}
                   </el-tag>
                 </template>

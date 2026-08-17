@@ -113,9 +113,11 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 	stats, _ := s.store.AllStats(r.Context())
 
 	out := make([]map[string]any, 0, len(agents))
+	now := time.Now().Unix()
 	for _, a := range agents {
 		st := stats[a.ID]
 		p, _ := s.store.GetPolicy(r.Context(), a.ID)
+		stale, since := agentUploadStale(a, p, st, now)
 		out = append(out, map[string]any{
 			"id":              a.ID,
 			"name":            a.Name,
@@ -124,6 +126,8 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 			"last_seen_at":    a.LastSeenAt,
 			"last_ip":         a.LastIP,
 			"online":          isOnline(a.LastSeenAt),
+			"upload_stale":    stale,
+			"upload_stale_sec": since,
 			"bytes_up":        st.BytesUp,
 			"upload_count":    st.UploadCount,
 			"last_upload_at":  st.LastUploadAt,

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os/exec"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +29,14 @@ const (
 	tunnelTarget   = "http://localhost:8080" // master's own listener
 	maxTunnelLogs  = 300
 	maxEdgeHistory = 50
+
+	// selfHeal: cloudflared retries registration every ~1m4s; three consecutive
+	// "Tunnel not found" rejections (~3-15min) mean CF has dropped the quick
+	// tunnel for good (observed in prod 2026-08-14: dead for 3 days, process
+	// alive, agents silently starved). Restart to fetch a fresh URL.
+	selfHealNotFoundThreshold = 3
+	selfHealCooldown          = 10 * time.Minute
+	selfHealCheckInterval     = 60 * time.Second
 )
 
 var trycloudflareRe = regexp.MustCompile(`https://[a-z0-9-]+\.trycloudflare\.com`)
@@ -51,6 +60,10 @@ type TunnelManager struct {
 	probeAt        time.Time
 	edgeHistory    []EdgeSwitch
 	protocolMode   string // "http2" | "quic" — cloudflared --protocol
+
+	// self-heal state
+	consecNotFound int       // consecutive "Tunnel not found" rejections
+	lastSelfHeal   time.Time // rate-limit restarts to avoid flapping
 }
 
 func newTunnelManager() *TunnelManager {
@@ -233,12 +246,24 @@ func (t *TunnelManager) Enable(ctx context.Context) error {
 				}
 				t.mu.Unlock()
 			}
+			// self-heal signals: count consecutive edge rejections, reset on a
+			// successful (re)registration.
+			if strings.Contains(line, "Tunnel not found") {
+				t.mu.Lock()
+				t.consecNotFound++
+				t.mu.Unlock()
+			} else if strings.Contains(line, "Registered tunnel connection") {
+				t.mu.Lock()
+				t.consecNotFound = 0
+				t.mu.Unlock()
+			}
 		}
 		// scanner ended = cloudflared exited
 		t.mu.Lock()
 		t.enabled = false
 		t.cmd = nil
 		t.url = ""
+		t.consecNotFound = 0
 		t.mu.Unlock()
 		t.appendLog("cloudflared 进程已退出")
 	}()
@@ -253,6 +278,7 @@ func (t *TunnelManager) Disable() error {
 	t.cmd = nil
 	t.enabled = false
 	t.url = ""
+	t.consecNotFound = 0
 	t.mu.Unlock()
 	if cmd != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
@@ -260,6 +286,55 @@ func (t *TunnelManager) Disable() error {
 	}
 	t.appendLog("tunnel 已关闭")
 	return nil
+}
+
+// --- self-heal ---
+
+// SelfHealLoop periodically checks whether cloudflared is being rejected by
+// the CF edge ("Tunnel not found" — the quick tunnel was deregistered on
+// Cloudflare's side) and restarts it to fetch a fresh trycloudflare URL.
+// Without this, a dead-but-running cloudflared keeps serving a stale URL to
+// every agent and uploads silently stop (prod incident 2026-08-14: 3 days).
+// Agents pick up the new URL on their next policy refresh (≤90s), so the
+// whole chain recovers without human intervention.
+func (t *TunnelManager) SelfHealLoop(ctx context.Context) {
+	ticker := time.NewTicker(selfHealCheckInterval)
+	defer ticker.Stop()
+	for range ticker.C {
+		if t.selfHealNeeded() {
+			t.selfHeal(ctx)
+		}
+	}
+}
+
+// selfHealNeeded reports whether the tunnel is enabled but the edge keeps
+// rejecting its registration, and we're outside the restart cooldown.
+func (t *TunnelManager) selfHealNeeded() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.enabled &&
+		t.consecNotFound >= selfHealNotFoundThreshold &&
+		time.Since(t.lastSelfHeal) > selfHealCooldown
+}
+
+// selfHeal restarts cloudflared for a fresh quick-tunnel URL. Rate-limited via
+// lastSelfHeal (set in selfHealNeeded's caller window — set here under the
+// lock right before acting to keep the check race-free).
+func (t *TunnelManager) selfHeal(ctx context.Context) {
+	t.mu.Lock()
+	n := t.consecNotFound
+	t.lastSelfHeal = time.Now()
+	t.mu.Unlock()
+
+	log.Printf("tunnel: self-heal: edge rejected registration %d times (Tunnel not found) — restarting cloudflared for a fresh URL", n)
+	t.appendLog(fmt.Sprintf("自愈: 边缘连续 %d 次拒绝注册(Tunnel not found)，重启 cloudflared 获取新地址...", n))
+
+	_ = t.Disable()
+	time.Sleep(2 * time.Second) // let the old process fully exit / sockets close
+	if err := t.Enable(ctx); err != nil {
+		log.Printf("tunnel: self-heal: re-enable failed: %v (retrying after cooldown)", err)
+		t.appendLog("自愈: 重新启用失败: " + err.Error())
+	}
 }
 
 // --- edge-IP optimization ---
