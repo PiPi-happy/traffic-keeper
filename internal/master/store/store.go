@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS agents (
 CREATE TABLE IF NOT EXISTS policies (
   agent_id         TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
   enabled          INTEGER NOT NULL DEFAULT 1,
+  upload_enabled   INTEGER NOT NULL DEFAULT 1,
   interval_sec     INTEGER NOT NULL DEFAULT 1800,
   interval_min_sec INTEGER NOT NULL DEFAULT 0,
   interval_max_sec INTEGER NOT NULL DEFAULT 0,
@@ -93,4 +94,18 @@ CREATE TABLE IF NOT EXISTS upload_events (
   duration_ms INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_upload_events_agent_ts ON upload_events(agent_id, ts);
+
+CREATE TABLE IF NOT EXISTS app_sources (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, publisher TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+  official INTEGER NOT NULL DEFAULT 0, allowed_hosts TEXT NOT NULL DEFAULT '',
+  max_mb INTEGER NOT NULL DEFAULT 150, updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS automation_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL,
+  source_id TEXT NOT NULL DEFAULT '', app_name TEXT NOT NULL DEFAULT '',
+  started_at INTEGER NOT NULL, bytes INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL, error TEXT NOT NULL DEFAULT '', duration_ms INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_automation_events_ts ON automation_events(started_at);
 `

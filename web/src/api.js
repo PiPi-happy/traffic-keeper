@@ -50,6 +50,14 @@ export async function getDashboard() {
   return data
 }
 
+export async function getAutomation() { const { data } = await api.get('/api/automation'); return data }
+export async function saveAutomation(config) { const { data } = await api.put('/api/automation', config); return data }
+export async function getAutomationSources() { const { data } = await api.get('/api/automation/sources'); return data.sources || [] }
+export async function saveAutomationSource(source) { const { data } = await api.post('/api/automation/sources', source); return data }
+export async function deleteAutomationSource(id) { await api.delete(`/api/automation/sources/${encodeURIComponent(id)}`) }
+export async function testAutomationSource(source) { const { data } = await api.post('/api/automation/source-test', source); return data }
+export async function getAutomationEvents() { const { data } = await api.get('/api/automation/events'); return data.events || [] }
+
 export async function createNode(name) {
   const { data } = await api.post('/api/nodes', { name })
   return data

@@ -16,6 +16,7 @@ func (s *Store) migrate() error {
 		{"agents", "country", "TEXT NOT NULL DEFAULT ''"},
 		{"agents", "arch", "TEXT NOT NULL DEFAULT ''"},
 		{"policies", "interval_min_sec", "INTEGER NOT NULL DEFAULT 0"},
+		{"policies", "upload_enabled", "INTEGER NOT NULL DEFAULT 1"},
 		{"policies", "interval_max_sec", "INTEGER NOT NULL DEFAULT 0"},
 		{"policies", "size_min_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"policies", "size_max_mb", "INTEGER NOT NULL DEFAULT 0"},

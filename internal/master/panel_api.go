@@ -119,24 +119,25 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 		p, _ := s.store.GetPolicy(r.Context(), a.ID)
 		stale, since := agentUploadStale(a, p, st, now)
 		out = append(out, map[string]any{
-			"id":              a.ID,
-			"name":            a.Name,
-			"enabled":         a.Enabled,
-			"created_at":      a.CreatedAt,
-			"last_seen_at":    a.LastSeenAt,
-			"last_ip":         a.LastIP,
-			"online":          isOnline(a.LastSeenAt),
-			"upload_stale":    stale,
+			"id":               a.ID,
+			"name":             a.Name,
+			"enabled":          a.Enabled,
+			"created_at":       a.CreatedAt,
+			"last_seen_at":     a.LastSeenAt,
+			"last_ip":          a.LastIP,
+			"online":           isOnline(a.LastSeenAt),
+			"upload_stale":     stale,
 			"upload_stale_sec": since,
-			"bytes_up":        st.BytesUp,
-			"upload_count":    st.UploadCount,
-			"last_upload_at":  st.LastUploadAt,
-			"version":         a.Version,
-			"pending_upgrade": a.PendingUpgrade,
-			"country":         a.Country,
-			"arch":            a.Arch,
+			"bytes_up":         st.BytesUp,
+			"upload_count":     st.UploadCount,
+			"last_upload_at":   st.LastUploadAt,
+			"version":          a.Version,
+			"pending_upgrade":  a.PendingUpgrade,
+			"country":          a.Country,
+			"arch":             a.Arch,
 			"policy": map[string]any{
 				"enabled":          p.Enabled,
+				"upload_enabled":   p.UploadEnabled,
 				"interval_sec":     p.IntervalSec,
 				"interval_min_sec": p.IntervalMinSec,
 				"interval_max_sec": p.IntervalMaxSec,
@@ -209,6 +210,7 @@ func (s *Server) handleNodePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Enabled        *bool `json:"enabled"`
+		UploadEnabled  *bool `json:"upload_enabled"`
 		IntervalSec    *int  `json:"interval_sec"`
 		IntervalMinSec *int  `json:"interval_min_sec"`
 		IntervalMaxSec *int  `json:"interval_max_sec"`
@@ -227,6 +229,9 @@ func (s *Server) handleNodePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Enabled != nil {
 		p.Enabled = *body.Enabled
+	}
+	if body.UploadEnabled != nil {
+		p.UploadEnabled = *body.UploadEnabled
 	}
 	if body.IntervalSec != nil {
 		if *body.IntervalSec < 1 {
@@ -284,6 +289,7 @@ func (s *Server) handleNodePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled":          p.Enabled,
+		"upload_enabled":   p.UploadEnabled,
 		"interval_sec":     p.IntervalSec,
 		"interval_min_sec": p.IntervalMinSec,
 		"interval_max_sec": p.IntervalMaxSec,

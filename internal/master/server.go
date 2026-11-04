@@ -51,8 +51,18 @@ func NewServer(s *store.Store, opts ...Option) *Server {
 		o(srv)
 	}
 	srv.routes()
+	_ = srv.seedAppSources(context.Background())
 	srv.startCleaners()
 	return srv
+}
+
+func (s *Server) seedAppSources(ctx context.Context) error {
+	// Official landing pages are disabled until a direct APK response is verified.
+	return s.store.SeedAppSources(ctx, []store.AppSource{
+		{ID: "wechat-android", Name: "微信 Android 官网入口", Publisher: "腾讯", URL: "https://weixin.qq.com/android", Enabled: false, Official: true, AllowedHosts: "weixin.qq.com", MaxMB: 150},
+		{ID: "douyin-android", Name: "抖音 Android 官网入口", Publisher: "字节跳动", URL: "https://www.douyin.com/downloadpage/app", Enabled: false, Official: true, AllowedHosts: "www.douyin.com,douyin.com", MaxMB: 300},
+		{ID: "alipay-android", Name: "支付宝 Android 官网入口", Publisher: "支付宝", URL: "https://render.alipay.com/p/s/download", Enabled: false, Official: true, AllowedHosts: "render.alipay.com", MaxMB: 200},
+	})
 }
 
 func (s *Server) routes() {
@@ -70,6 +80,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/tunnel/edge/apply", s.requireAdmin(s.handleEdgeApply))
 	s.mux.HandleFunc("/api/gh-proxy", s.requireAdmin(s.handleGhProxy))
 	s.mux.HandleFunc("/api/dashboard", s.requireAdmin(s.handleDashboard))
+	s.mux.HandleFunc("/api/automation", s.requireAdmin(s.handleAutomation))
+	s.mux.HandleFunc("/api/automation/sources", s.requireAdmin(s.handleAutomationSources))
+	s.mux.HandleFunc("/api/automation/sources/", s.requireAdmin(s.handleAutomationSource))
+	s.mux.HandleFunc("/api/automation/source-test", s.requireAdmin(s.handleAutomationSourceTest))
+	s.mux.HandleFunc("/api/automation/events", s.requireAdmin(s.handleAutomationEvents))
+	s.mux.HandleFunc("/api/agent/automation/event", s.handleAgentAutomationEvent)
 
 	// SPA frontend (embedded). More specific routes above take precedence.
 	s.mux.Handle("/", web.Handler())

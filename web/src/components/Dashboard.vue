@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Settings, FileText, Download, Upload, Trash2, Plus, RefreshCw, Lock, Cloud, LogOut, Globe,
   LayoutDashboard, Server,
+  Workflow, PackageOpen, Pencil,
 } from 'lucide-vue-next'
 import VChart from 'vue-echarts'
 import 'echarts'
@@ -13,9 +14,10 @@ import {
   getTunnel, enableTunnel, disableTunnel,
   testTunnelEdge, applyTunnelEdge,
   getGhProxy, setGhProxy, getDashboard,
+  getAutomation, saveAutomation, getAutomationSources, saveAutomationSource, deleteAutomationSource, getAutomationEvents, testAutomationSource,
 } from '../api'
 
-const activeView = ref('dashboard') // 'dashboard' | 'nodes'
+const activeView = ref('dashboard') // 'dashboard' | 'nodes' | 'automation' | 'sources'
 
 const nodes = ref([])
 const latestVersion = ref('')
@@ -57,6 +59,11 @@ let tunnelTimer = null
 // gh proxy config
 const showGhProxy = ref(false)
 const ghProxyForm = ref('')
+const automation = ref({ enabled:false, target_multiplier:1.3, window_hours:24, interface:'', check_min_sec:1800, check_max_sec:5400, max_task_mb:150, sources:[] })
+const appSources = ref([])
+const automationEvents = ref([])
+const sourceDialog = ref(false)
+const sourceForm = ref({ id:'', name:'', publisher:'', url:'', enabled:true, official:false, allowed_hosts:'', max_mb:150 })
 
 function isOutdated(row) {
   return !!(row.version && latestVersion.value && row.version !== latestVersion.value)
@@ -97,7 +104,29 @@ async function loadDashboard() {
 // manual refresh only (no auto-refresh) — refreshes whichever view is active.
 async function load() {
   if (activeView.value === 'dashboard') return loadDashboard()
+  if (activeView.value === 'automation' || activeView.value === 'sources') return loadAutomationPage()
   return loadNodes()
+}
+
+async function loadAutomationPage() {
+  try { const [c,s,e] = await Promise.all([getAutomation(),getAutomationSources(),getAutomationEvents()]); automation.value=c; appSources.value=s; automationEvents.value=e }
+  catch { ElMessage.error('加载自动化配置失败') }
+}
+
+async function persistAutomation() {
+  try { automation.value=await saveAutomation(automation.value); ElMessage.success('自动化配置已保存') }
+  catch(e) { ElMessage.error(e.response?.data || '保存失败') }
+}
+
+function editSource(source=null) { sourceForm.value=source ? {...source} : {id:'',name:'',publisher:'',url:'',enabled:true,official:false,allowed_hosts:'',max_mb:150}; sourceDialog.value=true }
+async function persistSource() {
+  try { await saveAutomationSource(sourceForm.value); sourceDialog.value=false; await loadAutomationPage(); ElMessage.success('来源已保存') }
+  catch(e) { ElMessage.error(e.response?.data || '保存来源失败') }
+}
+async function testSource() { try { const r=await testAutomationSource(sourceForm.value); if(r.ok) ElMessage.success(`地址可用：HTTP ${r.status} · ${r.content_type || 'APK'}`); else ElMessage.warning(`响应未确认是 APK：HTTP ${r.status} · ${r.content_type || '未知类型'}`) } catch(e) { ElMessage.error(e.response?.data || '地址测试失败') } }
+async function removeSource(source) {
+  try { await ElMessageBox.confirm(`删除下载来源「${source.name}」？`, '确认删除', {type:'warning'}); await deleteAutomationSource(source.id); await loadAutomationPage() }
+  catch(e) { if (e !== 'cancel' && e !== 'close') ElMessage.error('删除失败') }
 }
 
 function switchView(v) {
@@ -165,6 +194,11 @@ async function savePolicy() {
   } catch (e) {
     ElMessage.error('保存失败：' + (e.response?.data || e.message))
   }
+}
+
+async function toggleNodeUpload(row, enabled) {
+  try { await updatePolicy(row.id,{upload_enabled:enabled}); row.policy.upload_enabled=enabled; ElMessage.success(enabled?'已恢复该对端上传':'已暂停该对端上传') }
+  catch { ElMessage.error('更新上传开关失败'); loadNodes() }
 }
 
 async function remove(row) {
@@ -452,7 +486,13 @@ onUnmounted(() => {
           <LayoutDashboard :size="16" :stroke-width="1.5" /><span>仪表盘</span>
         </div>
         <div class="nav-item" :class="{ active: activeView === 'nodes' }" @click="switchView('nodes')">
-          <Server :size="16" :stroke-width="1.5" /><span>节点管理</span>
+          <Server :size="16" :stroke-width="1.5" /><span>对端节点</span>
+        </div>
+        <div class="nav-item" :class="{ active: activeView === 'automation' }" @click="switchView('automation')">
+          <Workflow :size="16" :stroke-width="1.5" /><span>自动化</span>
+        </div>
+        <div class="nav-item" :class="{ active: activeView === 'sources' }" @click="switchView('sources')">
+          <PackageOpen :size="16" :stroke-width="1.5" /><span>应用来源</span>
         </div>
       </nav>
       <div class="sidebar-foot">
@@ -463,7 +503,7 @@ onUnmounted(() => {
     <!-- main -->
     <div class="main">
       <header class="topbar">
-        <div class="topbar-title">{{ activeView === 'dashboard' ? '仪表盘' : '节点管理' }}</div>
+        <div class="topbar-title">{{ ({dashboard:'仪表盘',nodes:'对端节点',automation:'自动化',sources:'应用来源'})[activeView] }}</div>
         <div class="topbar-actions">
           <el-tooltip content="Cloudflare Tunnel" placement="bottom">
             <el-button text :class="{ 'tunnel-on': tunnel.enabled }" @click="openTunnel">
@@ -526,6 +566,34 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- automation view -->
+        <div v-else-if="activeView === 'automation'">
+          <div class="table-toolbar">
+            <el-button type="primary" @click="persistAutomation">保存配置</el-button>
+            <el-button :type="automation.enabled ? 'danger' : 'success'" @click="automation.enabled = !automation.enabled; persistAutomation()">{{ automation.enabled ? '暂停自动化' : '启用自动化' }}</el-button>
+            <el-button @click="switchView('sources')"><PackageOpen :size="15" /> 管理应用来源</el-button>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-head"><div><div class="dash-card-title">VPS 网卡流量自动化</div><div class="muted small">Agent 读取 Linux 网卡 RX/TX 计数；下行达到上行目标倍数后停止启动新下载。与对端节点上传独立。</div><div class="muted small" style="margin-top:5px">自动化策略由 Agent 状态列表中首个未暂停的 Master 控制。</div></div><el-tag :type="automation.enabled?'success':'info'">{{ automation.enabled?'运行中':'未启用' }}</el-tag></div>
+            <el-alert title="自动化下载任务运行在各 Agent 所在 VPS 上，只下载 APK，不安装或执行。网卡统计包含所选接口上的其他系统流量。" type="info" :closable="false" show-icon />
+            <el-form label-width="180px" style="margin-top:18px;max-width:760px">
+              <el-form-item label="下行目标倍数"><el-input-number v-model="automation.target_multiplier" :min="1" :max="100" :step="0.1" /> <span class="muted" style="margin-left:8px">下行目标 = 上行 × 倍数</span></el-form-item>
+              <el-form-item label="统计窗口"><el-select v-model="automation.window_hours"><el-option :value="24" label="滚动 24 小时"/><el-option :value="6" label="滚动 6 小时"/><el-option :value="1" label="滚动 1 小时"/></el-select></el-form-item>
+              <el-form-item label="统计网卡"><el-input v-model="automation.interface" placeholder="留空：汇总所有非 loopback 接口"/><div class="muted small">建议填写默认路由网卡名（例如 eth0），避免虚拟接口重复统计。</div></el-form-item>
+              <el-form-item label="随机检查间隔"><el-input-number v-model="automation.check_min_sec" :min="60" :step="300"/> <span style="margin:0 8px">至</span><el-input-number v-model="automation.check_max_sec" :min="60" :step="300"/> 秒</el-form-item>
+              <el-form-item label="单任务最大下载量"><el-input-number v-model="automation.max_task_mb" :min="1" :max="2048"/> MB <span class="muted" style="margin-left:8px">不设每日总量限额</span></el-form-item>
+              <el-form-item label="启用来源"><el-checkbox-group v-model="automation.sources"><el-checkbox v-for="s in appSources.filter(x=>x.enabled)" :key="s.id" :value="s.id">{{ s.name }} · {{ s.publisher }}</el-checkbox></el-checkbox-group><span v-if="!appSources.length" class="muted">暂无来源，请先管理应用来源</span></el-form-item>
+            </el-form>
+          </div>
+          <div class="dash-card"><div class="dash-card-head"><div class="dash-card-title">最近自动化执行</div><el-button text @click="loadAutomationPage">刷新</el-button></div><el-table :data="automationEvents" empty-text="暂无自动化任务"><el-table-column label="时间" min-width="170"><template #default="{row}">{{ formatTime(row.started_at) }}</template></el-table-column><el-table-column prop="app_name" label="应用 / 来源"/><el-table-column label="下载量"><template #default="{row}">{{ formatBytes(row.bytes) }}</template></el-table-column><el-table-column label="结果"><template #default="{row}"><el-tag size="small" :type="row.status==='ok'?'success':row.status==='fail'?'danger':'info'">{{ row.status }}</el-tag></template></el-table-column><el-table-column prop="error" label="说明"/></el-table></div>
+        </div>
+
+        <!-- application sources manager -->
+        <div v-else-if="activeView === 'sources'">
+          <div class="table-toolbar"><el-button type="primary" @click="editSource()"><Plus :size="15"/> 添加应用来源</el-button><el-button @click="switchView('automation')">返回自动化</el-button><el-button @click="loadAutomationPage">刷新</el-button></div>
+          <div class="table-card"><el-table :data="appSources" empty-text="暂无应用来源"><el-table-column prop="name" label="应用"/><el-table-column prop="publisher" label="厂商"/><el-table-column label="来源地址" min-width="260"><template #default="{row}"><el-tooltip :content="row.url"><span class="source-url">{{ row.url }}</span></el-tooltip></template></el-table-column><el-table-column label="类型" width="100"><template #default="{row}"><el-tag size="small" :type="row.official?'success':'info'">{{row.official?'官网':'自定义'}}</el-tag></template></el-table-column><el-table-column label="状态" width="90"><template #default="{row}">{{row.enabled?'启用':'停用'}}</template></el-table-column><el-table-column label="单任务上限" width="120"><template #default="{row}">{{row.max_mb}} MB</template></el-table-column><el-table-column label="操作" width="130"><template #default="{row}"><el-button size="small" circle @click="editSource(row)"><Pencil :size="14"/></el-button><el-button size="small" circle type="danger" @click="removeSource(row)"><Trash2 :size="14"/></el-button></template></el-table-column></el-table></div>
+        </div>
+
         <!-- nodes view -->
         <div v-else>
           <div class="table-toolbar">
@@ -553,6 +621,7 @@ onUnmounted(() => {
                   </el-tag>
                 </template>
               </el-table-column>
+              <el-table-column label="上传" width="110"><template #default="{row}"><el-switch :model-value="row.policy?.upload_enabled !== false" @change="toggleNodeUpload(row,$event)"/><span class="muted small" style="margin-left:5px">{{row.policy?.upload_enabled===false?'暂停':'运行'}}</span></template></el-table-column>
               <el-table-column label="地区" width="80">
                 <template #default="{ row }">{{ row.country || '—' }}</template>
               </el-table-column>
@@ -615,6 +684,21 @@ onUnmounted(() => {
         </div>
       </main>
     </div>
+
+    <!-- new node -->
+    <el-dialog v-model="sourceDialog" :title="sourceForm.id ? '编辑应用来源' : '添加应用来源'" width="620">
+      <el-form label-width="110px">
+        <el-form-item label="来源 ID"><el-input v-model="sourceForm.id" :disabled="!!appSources.find(s=>s.id===sourceForm.id)" placeholder="例如 wechat-android"/></el-form-item>
+        <el-form-item label="应用名称"><el-input v-model="sourceForm.name"/></el-form-item>
+        <el-form-item label="厂商"><el-input v-model="sourceForm.publisher" placeholder="例如 腾讯"/></el-form-item>
+        <el-form-item label="下载地址"><el-input v-model="sourceForm.url" placeholder="https://...apk"/></el-form-item>
+        <el-form-item label="允许主机名"><el-input v-model="sourceForm.allowed_hosts" placeholder="下载域名；重定向也必须位于允许列表"/></el-form-item>
+        <el-form-item label="单任务上限"><el-input-number v-model="sourceForm.max_mb" :min="1" :max="2048"/> MB</el-form-item>
+        <el-form-item label="状态"><el-switch v-model="sourceForm.enabled" active-text="启用" inactive-text="停用"/><el-checkbox v-model="sourceForm.official" style="margin-left:18px">官网来源</el-checkbox></el-form-item>
+      </el-form>
+      <el-alert title="只接受 HTTPS 下载地址。自定义来源请确认应用版权与下载权限；运行时仍会校验允许主机名、响应类型和大小上限。" type="warning" :closable="false"/>
+      <template #footer><el-button @click="testSource">测试地址</el-button><el-button type="primary" @click="persistSource">保存</el-button><el-button @click="sourceDialog=false">取消</el-button></template>
+    </el-dialog>
 
     <!-- new node -->
     <el-dialog v-model="showNew" title="新建节点" width="600" @close="created = null">
@@ -989,6 +1073,7 @@ onUnmounted(() => {
   color: var(--tk-orange);
   font-weight: 600;
 }
+.source-url { display:inline-block;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;color:var(--tk-blue); }
 
 /* tunnel */
 .tunnel-row {

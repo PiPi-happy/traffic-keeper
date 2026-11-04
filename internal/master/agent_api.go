@@ -1,7 +1,9 @@
 package master
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/PiPi-happy/traffic-keeper/internal/master/store"
 	"net/http"
 	"strings"
 )
@@ -109,6 +111,7 @@ func (s *Server) handleAgentPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled":          p.Enabled,
+		"upload_enabled":   p.UploadEnabled,
 		"interval_sec":     p.IntervalSec,
 		"interval_min_sec": p.IntervalMinSec,
 		"interval_max_sec": p.IntervalMaxSec,
@@ -117,5 +120,22 @@ func (s *Server) handleAgentPolicy(w http.ResponseWriter, r *http.Request) {
 		"size_max_mb":      p.SizeMaxMB,
 		"upload_url":       s.tunnel.UploadURL(), // tunnel base when up ("" while negotiating)
 		"tunnel_enabled":   s.tunnel.Enabled(),   // whether a tunnel is intended to be up
+		"automation":       s.agentAutomationPolicy(r.Context()),
 	})
+}
+
+func (s *Server) agentAutomationPolicy(ctx context.Context) map[string]any {
+	c, _ := s.store.GetAutomationConfig(ctx)
+	sources, _ := s.store.ListAppSources(ctx)
+	selected := map[string]bool{}
+	for _, id := range c.Sources {
+		selected[id] = true
+	}
+	available := make([]store.AppSource, 0, len(sources))
+	for _, src := range sources {
+		if src.Enabled && selected[src.ID] {
+			available = append(available, src)
+		}
+	}
+	return map[string]any{"enabled": c.Enabled, "target_multiplier": c.TargetMultiplier, "window_hours": c.WindowHours, "interface": c.Interface, "check_min_sec": c.CheckMinSec, "check_max_sec": c.CheckMaxSec, "max_task_mb": c.MaxTaskMB, "sources": available}
 }

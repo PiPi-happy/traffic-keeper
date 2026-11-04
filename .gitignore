@@ -35,6 +35,8 @@ web/dist/
 *.db-journal
 *.db-wal
 *.db-shm
+.gocache/
+.gomodcache/
 
 # embedded frontend: track placeholder.html, ignore built bundles
 internal/web/dist/index.html
@@ -44,4 +46,4 @@ internal/web/dist/assets/
 索引.md
 *.local.md
 *.secret.md
-PRD/
+PRD/服务器.md

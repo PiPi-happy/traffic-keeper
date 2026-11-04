@@ -47,15 +47,45 @@ type Config struct {
 
 // policy mirrors the master policy the agent pulls (per-master).
 type policy struct {
-	Enabled        bool   `json:"enabled"`
-	IntervalSec    int    `json:"interval_sec"`
-	IntervalMinSec int    `json:"interval_min_sec"`
-	IntervalMaxSec int    `json:"interval_max_sec"`
-	SizeMB         int    `json:"size_mb"`
-	SizeMinMB      int    `json:"size_min_mb"`
-	SizeMaxMB      int    `json:"size_max_mb"`
-	UploadURL      string `json:"upload_url"`
-	TunnelEnabled  bool   `json:"tunnel_enabled"`
+	Enabled        bool             `json:"enabled"`
+	UploadEnabled  bool             `json:"upload_enabled"`
+	IntervalSec    int              `json:"interval_sec"`
+	IntervalMinSec int              `json:"interval_min_sec"`
+	IntervalMaxSec int              `json:"interval_max_sec"`
+	SizeMB         int              `json:"size_mb"`
+	SizeMinMB      int              `json:"size_min_mb"`
+	SizeMaxMB      int              `json:"size_max_mb"`
+	UploadURL      string           `json:"upload_url"`
+	TunnelEnabled  bool             `json:"tunnel_enabled"`
+	Automation     automationPolicy `json:"automation"`
+}
+
+type automationSource struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	URL          string `json:"url"`
+	AllowedHosts string `json:"allowed_hosts"`
+	MaxMB        int    `json:"max_mb"`
+}
+type automationPolicy struct {
+	Enabled          bool               `json:"enabled"`
+	TargetMultiplier float64            `json:"target_multiplier"`
+	WindowHours      int                `json:"window_hours"`
+	Interface        string             `json:"interface"`
+	CheckMinSec      int                `json:"check_min_sec"`
+	CheckMaxSec      int                `json:"check_max_sec"`
+	MaxTaskMB        int                `json:"max_task_mb"`
+	Sources          []automationSource `json:"sources"`
+}
+type trafficSample struct {
+	At int64 `json:"at"`
+	RX int64 `json:"rx"`
+	TX int64 `json:"tx"`
+}
+type agentPersist struct {
+	Version int             `json:"version"`
+	Masters []StateMaster   `json:"masters"`
+	Samples []trafficSample `json:"samples,omitempty"`
 }
 
 // StateMaster is one master's persisted credentials.
@@ -68,8 +98,9 @@ type StateMaster struct {
 
 // StateFile is the on-disk state (version 2 = master list).
 type StateFile struct {
-	Version int           `json:"version"`
-	Masters []StateMaster `json:"masters"`
+	Version int             `json:"version"`
+	Masters []StateMaster   `json:"masters"`
+	Samples []trafficSample `json:"samples,omitempty"`
 }
 
 // masterConn holds one master's runtime state.
@@ -87,6 +118,8 @@ type masterConn struct {
 	lastRefreshAttempt time.Time // gates failure-triggered policy refreshes
 	lastUpload         time.Time
 	failBackoffUntil   time.Time // no upload before this time after a failure
+	automation         automationPolicy
+	automationOwner    bool
 }
 
 // Agent is the supervisor: manages N masterConn, each with its own loop group.
@@ -101,9 +134,13 @@ type Agent struct {
 	masters   map[string]*masterConn
 	cancelers map[string]context.CancelFunc
 
-	upgradingMu sync.Mutex
-	upgrading   bool
-	country     string
+	upgradingMu         sync.Mutex
+	upgrading           bool
+	country             string
+	automationMu        sync.Mutex
+	automation          automationPolicy
+	lastAutomationCheck time.Time
+	automationRunning   bool
 }
 
 // New creates an agent supervisor.
@@ -140,6 +177,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}()
 
 	a.reconcile(ctx)
+	go a.automationLoop(ctx)
 	<-ctx.Done()
 	return nil
 }
@@ -158,7 +196,6 @@ func (a *Agent) reconcile(parent context.Context) {
 			desired[srv] = m
 		}
 	}
-
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
 
@@ -195,6 +232,34 @@ func (a *Agent) reconcile(parent context.Context) {
 			delete(a.cancelers, srv)
 			log.Printf("master %s: stopped", srv)
 		}
+	}
+	// Select one deterministic owner for Agent-level automation so multiple
+	// Masters cannot race different policies on the same host.
+	a.reconcileAutomationOwner()
+}
+
+func (a *Agent) reconcileAutomationOwner() {
+	// State file order is the stable precedence rule. The first configured,
+	// non-stopped connection owns the host-wide automation policy.
+	a.stateMu.Lock()
+	masters := append([]StateMaster(nil), a.file.Masters...)
+	a.stateMu.Unlock()
+	owner := ""
+	for _, m := range masters {
+		if !m.Stopped && m.AgentID != "" {
+			owner = NormalizeServer(m.Server)
+			break
+		}
+	}
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	for server, c := range a.masters {
+		c.mu.Lock()
+		c.automationOwner = server == owner
+		if server != owner {
+			c.automation = automationPolicy{}
+		}
+		c.mu.Unlock()
 	}
 }
 
@@ -252,7 +317,7 @@ func (a *Agent) uploadLoop(ctx context.Context, c *masterConn) {
 			interval := c.intervalSec
 			backoffUntil := c.failBackoffUntil
 			c.mu.Unlock()
-			if !p.Enabled || interval <= 0 {
+			if !p.Enabled || !p.UploadEnabled || interval <= 0 {
 				continue
 			}
 			if time.Now().Before(backoffUntil) {
@@ -326,6 +391,9 @@ func (c *masterConn) refreshPolicy(ctx context.Context, client *http.Client) {
 	}
 	c.mu.Lock()
 	c.policy = p
+	if c.automationOwner {
+		c.automation = p.Automation
+	}
 	c.intervalSec = computeInterval(p)
 	c.lastPolicyPull = time.Now()
 	c.mu.Unlock()
@@ -590,6 +658,8 @@ func (a *Agent) loadState() error {
 			continue
 		}
 		a.masters[srv] = &masterConn{server: srv, agentID: m.AgentID, secret: m.Secret, stopped: m.Stopped}
+	}
+	if len(a.file.Samples) > 0 { /* samples are retained across upgrades for the configured rolling window */
 	}
 
 	// Persist migrated v2 (best effort).
