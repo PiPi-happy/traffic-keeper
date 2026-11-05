@@ -1,6 +1,7 @@
 package master
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,7 +25,7 @@ func (s *Server) handleAutomation(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, c)
 	case http.MethodPut:
 		var c store.AutomationConfig
-		if json.NewDecoder(r.Body).Decode(&c) != nil {
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&c) != nil {
 			http.Error(w, "bad request", 400)
 			return
 		}
@@ -70,7 +71,7 @@ func (s *Server) handleAutomationSources(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, 200, map[string]any{"sources": a})
 	case http.MethodPost:
 		var a store.AppSource
-		if json.NewDecoder(r.Body).Decode(&a) != nil {
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<10)).Decode(&a) != nil {
 			http.Error(w, "bad request", 400)
 			return
 		}
@@ -84,6 +85,20 @@ func (s *Server) handleAutomationSources(w http.ResponseWriter, r *http.Request)
 		}
 		if a.AllowedHosts == "" {
 			a.AllowedHosts = u.Hostname()
+		}
+		if a.Enabled {
+			prev, _ := s.store.ListAppSources(r.Context())
+			verified := false
+			for _, old := range prev {
+				if old.ID == a.ID && old.Verified && old.URL == a.URL && old.AllowedHosts == a.AllowedHosts {
+					verified = true
+					break
+				}
+			}
+			if !verified {
+				http.Error(w, "请先测试并验证该来源的 APK 直链，再启用", 400)
+				return
+			}
 		}
 		if strings.TrimSpace(a.AllowedHosts) == "" {
 			http.Error(w, "allowed_hosts is required", 400)
@@ -122,15 +137,16 @@ func (s *Server) handleAutomationSourceTest(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var body struct {
+		ID           string `json:"id"`
 		URL          string `json:"url"`
 		AllowedHosts string `json:"allowed_hosts"`
 	}
-	if json.NewDecoder(r.Body).Decode(&body) != nil {
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body) != nil {
 		http.Error(w, "bad request", 400)
 		return
 	}
 	u, err := url.Parse(body.URL)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
 		http.Error(w, "HTTPS URL required", 400)
 		return
 	}
@@ -145,8 +161,8 @@ func (s *Server) handleAutomationSourceTest(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	client := http.Client{Timeout: 15 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 4 || req.URL.Scheme != "https" || !allowed[strings.ToLower(req.URL.Hostname())] {
+	client := http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{DisableKeepAlives: true, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second, DialContext: publicSourceDial}, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 4 || req.URL.Scheme != "https" || req.URL.User != nil || !allowed[strings.ToLower(req.URL.Hostname())] {
 			return http.ErrUseLastResponse
 		}
 		return ensurePublicHostname(req.URL.Hostname())
@@ -163,8 +179,18 @@ func (s *Server) handleAutomationSourceTest(w http.ResponseWriter, r *http.Reque
 	}
 	defer resp.Body.Close()
 	magic := make([]byte, 4)
-	n, _ := io.ReadFull(resp.Body, magic)
+	limited := io.LimitReader(resp.Body, 4)
+	n, _ := io.ReadFull(limited, magic)
 	valid := resp.StatusCode == 200 && n == 4 && string(magic) == "PK\x03\x04"
+	if valid && body.ID != "" {
+		sources, _ := s.store.ListAppSources(r.Context())
+		for _, src := range sources {
+			if src.ID == body.ID && src.URL == body.URL && src.AllowedHosts == body.AllowedHosts {
+				_ = s.store.MarkSourceVerified(r.Context(), body.ID, body.URL)
+				break
+			}
+		}
+	}
 	writeJSON(w, 200, map[string]any{"ok": valid, "status": resp.StatusCode, "content_type": resp.Header.Get("Content-Type"), "content_length": resp.ContentLength, "final_url": resp.Request.URL.String(), "apk_magic": valid, "signature_prefix": fmt.Sprintf("%x", magic[:n])})
 }
 
@@ -182,6 +208,29 @@ func ensurePublicHostname(host string) error {
 		}
 	}
 	return nil
+}
+
+func publicSourceDial(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return nil, fmt.Errorf("source hostname cannot be resolved")
+	}
+	var lastErr error
+	for _, ip := range ips {
+		if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || !ip.IsGlobalUnicast() {
+			return nil, fmt.Errorf("source hostname must resolve to public IPs")
+		}
+		conn, e := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if e == nil {
+			return conn, nil
+		}
+		lastErr = e
+	}
+	return nil, lastErr
 }
 
 func (s *Server) handleAutomationEvents(w http.ResponseWriter, r *http.Request) {
@@ -203,7 +252,7 @@ func (s *Server) handleAgentAutomationEvent(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var e store.AutomationEvent
-	if json.NewDecoder(r.Body).Decode(&e) != nil || e.AgentID == "" {
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&e) != nil || e.AgentID == "" || e.Bytes < 0 || e.DurationMs < 0 || len(e.Error) > 2048 || len(e.AppName) > 256 || len(e.SourceID) > 256 || e.StartedAt < time.Now().Add(-31*24*time.Hour).Unix() || e.StartedAt > time.Now().Add(5*time.Minute).Unix() {
 		http.Error(w, "bad request", 400)
 		return
 	}

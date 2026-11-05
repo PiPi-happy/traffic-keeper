@@ -15,9 +15,12 @@ package main
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/PiPi-happy/traffic-keeper/internal/master"
@@ -30,6 +33,16 @@ var version = "dev"
 
 func main() {
 	addr := envOr("MASTER_ADDR", ":8080")
+	port := 8080
+	if _, p, err := net.SplitHostPort(addr); err == nil {
+		if n, e := strconv.Atoi(p); e == nil {
+			port = n
+		}
+	} else if strings.HasPrefix(addr, ":") {
+		if n, e := strconv.Atoi(strings.TrimPrefix(addr, ":")); e == nil {
+			port = n
+		}
+	}
 	dbPath := envOr("MASTER_DB", "traffic-keeper.db")
 
 	st, err := store.Open(dbPath)
@@ -42,6 +55,7 @@ func main() {
 		master.WithBaseURL(envOr("MASTER_BASE_URL", "")),
 		master.WithAdminPassword(envOr("MASTER_ADMIN_PASSWORD", "")),
 		master.WithVersion(version),
+		master.WithListenPort(port),
 	)
 	if err := srv.InitAdminPassword(context.Background(), envOr("MASTER_ADMIN_PASSWORD", "")); err != nil {
 		log.Fatalf("init admin password: %v", err)

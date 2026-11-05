@@ -2,6 +2,7 @@ package master
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -10,6 +11,9 @@ import (
 
 	"github.com/PiPi-happy/traffic-keeper/internal/master/store"
 )
+
+const maxUploadBytes int64 = 5 * 1024 * 1024
+const uploadTimeout = 2 * time.Minute
 
 // handleUpload is the data plane.
 //
@@ -42,6 +46,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad token", http.StatusUnauthorized)
 		return
 	}
+	if r.ContentLength > maxUploadBytes {
+		s.recordEvent(agentID, 0, "fail", "upload exceeds 5 MiB limit", 0)
+		http.Error(w, "upload exceeds 5 MiB limit", http.StatusRequestEntityTooLarge)
+		return
+	}
 	if !agent.Enabled {
 		http.Error(w, "agent disabled", http.StatusForbidden)
 		return
@@ -49,10 +58,19 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Stream the body to /dev/null while counting. Never load it into memory.
 	start := time.Now()
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	ctx, cancel := context.WithTimeout(r.Context(), uploadTimeout)
+	defer cancel()
+	r = r.WithContext(ctx)
 	n, err := io.Copy(io.Discard, r.Body)
 	durMs := time.Since(start).Milliseconds()
 	if err != nil {
 		s.recordEvent(agentID, n, "fail", err.Error(), durMs)
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			http.Error(w, "upload exceeds 5 MiB limit", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "read error", http.StatusBadRequest)
 		return
 	}

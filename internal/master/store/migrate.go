@@ -21,6 +21,7 @@ func (s *Store) migrate() error {
 		{"policies", "size_min_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"policies", "size_max_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"upload_events", "duration_ms", "INTEGER NOT NULL DEFAULT 0"},
+		{"app_sources", "verified_url", "TEXT NOT NULL DEFAULT ''"},
 	}
 	for _, c := range add {
 		exists, err := s.columnExists(c.table, c.col)

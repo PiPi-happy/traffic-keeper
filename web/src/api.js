@@ -57,6 +57,8 @@ export async function saveAutomationSource(source) { const { data } = await api.
 export async function deleteAutomationSource(id) { await api.delete(`/api/automation/sources/${encodeURIComponent(id)}`) }
 export async function testAutomationSource(source) { const { data } = await api.post('/api/automation/source-test', source); return data }
 export async function getAutomationEvents() { const { data } = await api.get('/api/automation/events'); return data.events || [] }
+export async function getListenPort() { const { data } = await api.get('/api/listen-port'); return data.port }
+export async function setListenPort(port) { const { data } = await api.put('/api/listen-port', { port }); return data }
 
 export async function createNode(name) {
   const { data } = await api.post('/api/nodes', { name })

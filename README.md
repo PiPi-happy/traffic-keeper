@@ -79,10 +79,12 @@ MASTER_BASE_URL=http://<本机IP>:8080 MASTER_ADMIN_PASSWORD=你的密码 ./tk-m
 
 | 变量 | 说明 | 默认 |
 |------|------|------|
-| `MASTER_ADDR` | 监听地址 | `:8080` |
+| `MASTER_ADDR` | 面板及上传接收服务监听地址 | `:8080` |
 | `MASTER_DB` | SQLite 路径 | `traffic-keeper.db` |
 | `MASTER_BASE_URL` | 公网地址（生成 agent 安装命令里的 `--server`） | — |
 | `MASTER_ADMIN_PASSWORD` | 面板登录密码（首次 seed） | — |
+
+一键管理脚本安装 Master 时会询问监听端口；运行后可在面板顶部设置中修改，保存后 Master 自动重启。若使用 Caddy/Nginx 或 Docker，还需同步修改代理目标/端口映射。
 
 ### 5. 运行说明
 

@@ -29,7 +29,7 @@ func startFakeMaster(t *testing.T, token string) (*httptest.Server, *store.Store
 	if err := st.CreateAgent(ctx, store.Agent{ID: "a1", Name: "n", Token: token, Secret: "sec_test"}); err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
-	if err := st.UpsertPolicy(ctx, store.Policy{AgentID: "a1", Enabled: true, IntervalSec: 1, SizeMB: 1}); err != nil {
+	if err := st.UpsertPolicy(ctx, store.Policy{AgentID: "a1", Enabled: true, UploadEnabled: true, IntervalSec: 1, SizeMB: 1}); err != nil {
 		t.Fatalf("seed fast policy: %v", err)
 	}
 	hs := httptest.NewServer(master.NewServer(st))
@@ -111,6 +111,8 @@ func TestAddMasterDifferentServersAppend(t *testing.T) {
 
 // TestMultiMasterUpload: one agent fans out to two masters, both receive uploads.
 func TestMultiMasterUpload(t *testing.T) {
+	oldHeartbeat, oldPolicy, oldTick := heartbeatInterval, policyPullInterval, tickInterval
+	t.Cleanup(func() { heartbeatInterval, policyPullInterval, tickInterval = oldHeartbeat, oldPolicy, oldTick })
 	heartbeatInterval = 50 * time.Millisecond
 	policyPullInterval = 50 * time.Millisecond
 	tickInterval = 50 * time.Millisecond
@@ -130,14 +132,23 @@ func TestMultiMasterUpload(t *testing.T) {
 	a := New(Config{State: path, Version: "test"})
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go func() { _ = a.Run(runCtx) }()
+	runDone := make(chan struct{})
+	go func() { defer close(runDone); _ = a.Run(runCtx) }()
 
 	waitUpload(t, st1, "a1", 5*time.Second)
 	waitUpload(t, st2, "a1", 5*time.Second)
+	cancel()
+	select {
+	case <-runDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("agent run did not stop")
+	}
 }
 
 // TestStopRemove: stop pauses one master (other keeps uploading); remove drops it.
 func TestStopRemove(t *testing.T) {
+	oldHeartbeat, oldPolicy, oldTick := heartbeatInterval, policyPullInterval, tickInterval
+	t.Cleanup(func() { heartbeatInterval, policyPullInterval, tickInterval = oldHeartbeat, oldPolicy, oldTick })
 	heartbeatInterval = 50 * time.Millisecond
 	policyPullInterval = 50 * time.Millisecond
 	tickInterval = 50 * time.Millisecond
@@ -153,7 +164,8 @@ func TestStopRemove(t *testing.T) {
 	a := New(Config{State: path, Version: "test"})
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go func() { _ = a.Run(runCtx) }()
+	runDone := make(chan struct{})
+	go func() { defer close(runDone); _ = a.Run(runCtx) }()
 
 	waitUpload(t, st1, "a1", 5*time.Second)
 	waitUpload(t, st2, "a1", 5*time.Second)
@@ -188,6 +200,12 @@ func TestStopRemove(t *testing.T) {
 	ms, _ := ListMasters(path)
 	if len(ms) != 1 || NormalizeServer(ms[0].Server) != NormalizeServer(m1.URL) {
 		t.Fatalf("after remove expected only m1, got %+v", ms)
+	}
+	cancel()
+	select {
+	case <-runDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("agent run did not stop")
 	}
 }
 

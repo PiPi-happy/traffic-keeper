@@ -71,8 +71,12 @@ preflight() {
 install_master() {
 	echo "=== 安装 Master ==="
 	if [ -x "$MASTER_BIN" ]; then echo "master 已安装（用「更新 Master」升级）"; return 0; fi
-	local default_url="http://$(hostname -I 2>/dev/null | awk '{print $1}'):8080"
+	local default_url port
 	local base pw
+	read -rp "Master 面板监听端口（默认 8080）: " port </dev/tty
+	port="${port:-8080}"
+	[[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || { echo "error: 端口必须是 1-65535" >&2; return 1; }
+	default_url="http://$(hostname -I 2>/dev/null | awk '{print $1}'):${port}"
 	read -rp "MASTER_BASE_URL（agent 连接用，默认 $default_url）: " base </dev/tty
 	base="${base:-$default_url}"
 	read -rsp "MASTER_ADMIN_PASSWORD（面板登录密码，≥6位）: " pw </dev/tty; echo
@@ -91,7 +95,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=${MASTER_BIN}
-Environment=MASTER_ADDR=:8080
+Environment=MASTER_ADDR=:${port}
 Environment=MASTER_DB=${MASTER_DB}
 Environment=MASTER_BASE_URL=${base}
 Environment=MASTER_ADMIN_PASSWORD=${pw}
@@ -104,7 +108,7 @@ EOF
 	systemctl daemon-reload
 	systemctl enable "$MASTER_SVC" >/dev/null 2>&1 || true
 	systemctl restart "$MASTER_SVC"
-	echo "✓ master 已安装并启动 → http://$(hostname -I 2>/dev/null | awk '{print $1}'):8080"
+	echo "✓ master 已安装并启动 → http://$(hostname -I 2>/dev/null | awk '{print $1}'):${port}"
 	echo "  日志: journalctl -u $MASTER_SVC -f"
 }
 

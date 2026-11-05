@@ -31,7 +31,7 @@ func (s *Store) SetAutomationConfig(ctx context.Context, c AutomationConfig) err
 }
 
 func (s *Store) ListAppSources(ctx context.Context) ([]AppSource, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,name,publisher,url,enabled,official,allowed_hosts,max_mb FROM app_sources ORDER BY publisher,name`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,name,publisher,url,enabled,official,allowed_hosts,max_mb,verified_url FROM app_sources ORDER BY publisher,name`)
 	if err != nil {
 		return nil, err
 	}
@@ -40,24 +40,30 @@ func (s *Store) ListAppSources(ctx context.Context) ([]AppSource, error) {
 	for rows.Next() {
 		var a AppSource
 		var en, official int
-		if err := rows.Scan(&a.ID, &a.Name, &a.Publisher, &a.URL, &en, &official, &a.AllowedHosts, &a.MaxMB); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Publisher, &a.URL, &en, &official, &a.AllowedHosts, &a.MaxMB, &a.VerifiedURL); err != nil {
 			return nil, err
 		}
 		a.Enabled = en != 0
 		a.Official = official != 0
+		a.Verified = a.VerifiedURL == a.URL
 		out = append(out, a)
 	}
 	return out, rows.Err()
 }
 
 func (s *Store) SaveAppSource(ctx context.Context, a AppSource) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO app_sources(id,name,publisher,url,enabled,official,allowed_hosts,max_mb,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,publisher=excluded.publisher,url=excluded.url,enabled=excluded.enabled,official=excluded.official,allowed_hosts=excluded.allowed_hosts,max_mb=excluded.max_mb,updated_at=excluded.updated_at`, a.ID, a.Name, a.Publisher, a.URL, boolToInt(a.Enabled), boolToInt(a.Official), a.AllowedHosts, a.MaxMB, time.Now().Unix())
+	_, err := s.db.ExecContext(ctx, `INSERT INTO app_sources(id,name,publisher,url,enabled,official,allowed_hosts,max_mb,updated_at,verified_url) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,publisher=excluded.publisher,url=excluded.url,enabled=excluded.enabled,official=excluded.official,allowed_hosts=excluded.allowed_hosts,max_mb=excluded.max_mb,updated_at=excluded.updated_at,verified_url=CASE WHEN app_sources.url=excluded.url AND app_sources.allowed_hosts=excluded.allowed_hosts THEN app_sources.verified_url ELSE '' END`, a.ID, a.Name, a.Publisher, a.URL, boolToInt(a.Enabled), boolToInt(a.Official), a.AllowedHosts, a.MaxMB, time.Now().Unix(), a.VerifiedURL)
+	return err
+}
+
+func (s *Store) MarkSourceVerified(ctx context.Context, id, url string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE app_sources SET verified_url=? WHERE id=? AND url=?`, url, id, url)
 	return err
 }
 
 func (s *Store) SeedAppSources(ctx context.Context, sources []AppSource) error {
 	for _, a := range sources {
-		if _, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO app_sources(id,name,publisher,url,enabled,official,allowed_hosts,max_mb,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, a.ID, a.Name, a.Publisher, a.URL, boolToInt(a.Enabled), boolToInt(a.Official), a.AllowedHosts, a.MaxMB, time.Now().Unix()); err != nil {
+		if _, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO app_sources(id,name,publisher,url,enabled,official,allowed_hosts,max_mb,updated_at,verified_url) VALUES(?,?,?,?,?,?,?,?,?,?)`, a.ID, a.Name, a.Publisher, a.URL, boolToInt(a.Enabled), boolToInt(a.Official), a.AllowedHosts, a.MaxMB, time.Now().Unix(), a.VerifiedURL); err != nil {
 			return err
 		}
 	}
@@ -75,6 +81,15 @@ func (s *Store) InsertAutomationEvent(ctx context.Context, e AutomationEvent) er
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO automation_events(agent_id,source_id,app_name,started_at,bytes,status,error,duration_ms) VALUES(?,?,?,?,?,?,?,?)`, e.AgentID, e.SourceID, e.AppName, e.StartedAt, e.Bytes, e.Status, e.Error, e.DurationMs)
 	return err
+}
+
+func (s *Store) DeleteAutomationEventsBefore(ctx context.Context, ts int64) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM automation_events WHERE started_at < ?`, ts)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return n, err
 }
 
 func (s *Store) ListAutomationEvents(ctx context.Context, since int64, limit int) ([]AutomationEvent, error) {

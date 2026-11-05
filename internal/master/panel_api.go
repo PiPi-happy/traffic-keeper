@@ -255,8 +255,8 @@ func (s *Server) handleNodePolicy(w http.ResponseWriter, r *http.Request) {
 		p.IntervalMaxSec = *body.IntervalMaxSec
 	}
 	if body.SizeMB != nil {
-		if *body.SizeMB < 1 {
-			http.Error(w, "size_mb must be >= 1", http.StatusBadRequest)
+		if *body.SizeMB < 1 || *body.SizeMB > 5 {
+			http.Error(w, "size_mb must be between 1 and 5 MiB", http.StatusBadRequest)
 			return
 		}
 		p.SizeMB = *body.SizeMB
@@ -274,6 +274,10 @@ func (s *Server) handleNodePolicy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p.SizeMaxMB = *body.SizeMaxMB
+	}
+	if p.SizeMinMB > 5 || p.SizeMaxMB > 5 {
+		http.Error(w, "upload size must not exceed 5 MiB", http.StatusBadRequest)
+		return
 	}
 	if p.SizeMaxMB > 0 && p.SizeMaxMB < p.SizeMinMB {
 		http.Error(w, "size_max_mb must be >= size_min_mb", http.StatusBadRequest)

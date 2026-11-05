@@ -23,6 +23,7 @@ type Server struct {
 	baseURL     string // public base URL used to render install commands
 	tunnel      *TunnelManager
 	version     string // master/agent release version (for self-upgrade target)
+	listenPort  int
 }
 
 // Option configures a Server.
@@ -43,6 +44,9 @@ func WithBaseURL(u string) Option {
 func WithVersion(v string) Option {
 	return func(s *Server) { s.version = v }
 }
+
+// WithListenPort sets the port reported and managed for the panel listener.
+func WithListenPort(port int) Option { return func(s *Server) { s.listenPort = port } }
 
 // NewServer creates a master server backed by the given store.
 func NewServer(s *store.Store, opts ...Option) *Server {
@@ -79,6 +83,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/tunnel/edge/test", s.requireAdmin(s.handleEdgeTest))
 	s.mux.HandleFunc("/api/tunnel/edge/apply", s.requireAdmin(s.handleEdgeApply))
 	s.mux.HandleFunc("/api/gh-proxy", s.requireAdmin(s.handleGhProxy))
+	s.mux.HandleFunc("/api/listen-port", s.requireAdmin(s.handleListenPort))
 	s.mux.HandleFunc("/api/dashboard", s.requireAdmin(s.handleDashboard))
 	s.mux.HandleFunc("/api/automation", s.requireAdmin(s.handleAutomation))
 	s.mux.HandleFunc("/api/automation/sources", s.requireAdmin(s.handleAutomationSources))
@@ -143,12 +148,30 @@ const eventRetention = 3 * 24 * time.Hour
 
 func (s *Server) startCleaners() {
 	go s.cleanUploadEvents()
+	go s.cleanAutomationEvents()
 	// Self-heal loop watches for a cloudflared that's alive but rejected by
 	// the CF edge (quick tunnel deregistered) and restarts it for a fresh
 	// URL. context.Background(): tied to the process, not any request.
 	go s.tunnel.SelfHealLoop(context.Background())
 	// Upload-health sentinel: flag online agents that stopped uploading.
 	go s.watchUploadHealth()
+}
+
+func (s *Server) cleanAutomationEvents() {
+	t := time.NewTicker(6 * time.Hour)
+	defer t.Stop()
+	clean := func() {
+		n, err := s.store.DeleteAutomationEventsBefore(context.Background(), time.Now().Add(-30*24*time.Hour).Unix())
+		if err != nil {
+			log.Printf("purge automation events: %v", err)
+		} else if n > 0 {
+			log.Printf("purged %d old automation events", n)
+		}
+	}
+	clean()
+	for range t.C {
+		clean()
+	}
 }
 
 func (s *Server) cleanUploadEvents() {

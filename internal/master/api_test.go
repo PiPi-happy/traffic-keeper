@@ -129,13 +129,13 @@ func TestNodeLifecycle(t *testing.T) {
 	}
 
 	// admin updates policy; agent sees the change
-	rec = doReq(t, srv, http.MethodPut, "/api/nodes/"+agentID+"/policy", tok, map[string]any{"enabled": false, "size_mb": 20, "interval_sec": 600})
+	rec = doReq(t, srv, http.MethodPut, "/api/nodes/"+agentID+"/policy", tok, map[string]any{"enabled": false, "size_mb": 5, "interval_sec": 600})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update policy: %d", rec.Code)
 	}
 	rec = doReq(t, srv, http.MethodGet, "/api/agent/"+agentID+"/policy", secret, nil)
 	_ = json.Unmarshal(rec.Body.Bytes(), &pol)
-	if pol["enabled"].(bool) || pol["size_mb"].(float64) != 20 || pol["interval_sec"].(float64) != 600 {
+	if pol["enabled"].(bool) || pol["size_mb"].(float64) != 5 || pol["interval_sec"].(float64) != 600 {
 		t.Fatalf("updated policy not reflected: %+v", pol)
 	}
 

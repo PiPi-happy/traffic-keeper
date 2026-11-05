@@ -105,6 +105,7 @@ type StateFile struct {
 
 // masterConn holds one master's runtime state.
 type masterConn struct {
+	agent   *Agent
 	server  string // normalized, immutable
 	agentID string
 	secret  string
@@ -134,13 +135,16 @@ type Agent struct {
 	masters   map[string]*masterConn
 	cancelers map[string]context.CancelFunc
 
-	upgradingMu         sync.Mutex
-	upgrading           bool
-	country             string
-	automationMu        sync.Mutex
-	automation          automationPolicy
-	lastAutomationCheck time.Time
-	automationRunning   bool
+	upgradingMu           sync.Mutex
+	upgrading             bool
+	country               string
+	automationMu          sync.Mutex
+	automation            automationPolicy
+	lastAutomationCheck   time.Time
+	automationRunning     bool
+	automationCancel      context.CancelFunc
+	automationOwnerServer string
+	automationStatus      string
 }
 
 // New creates an agent supervisor.
@@ -170,10 +174,26 @@ func (a *Agent) Run(ctx context.Context) error {
 	hupCh := make(chan os.Signal, 1)
 	signal.Notify(hupCh, syscall.SIGHUP)
 	go func() {
-		for range hupCh {
-			log.Printf("SIGHUP: reconciling masters")
-			a.reconcile(ctx)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hupCh:
+				log.Printf("SIGHUP: reconciling masters")
+				a.reconcile(ctx)
+			}
 		}
+	}()
+	defer func() {
+		signal.Stop(hupCh)
+		a.runMu.Lock()
+		for server, cancel := range a.cancelers {
+			cancel()
+			delete(a.cancelers, server)
+		}
+		a.runMu.Unlock()
+		a.cancelAutomation()
+		a.client.CloseIdleConnections()
 	}()
 
 	a.reconcile(ctx)
@@ -203,7 +223,7 @@ func (a *Agent) reconcile(parent context.Context) {
 	for srv, m := range desired {
 		c, ok := a.masters[srv]
 		if !ok {
-			c = &masterConn{server: srv}
+			c = &masterConn{server: srv, agent: a}
 			a.masters[srv] = c
 		}
 		c.agentID = m.AgentID
@@ -251,16 +271,29 @@ func (a *Agent) reconcileAutomationOwner() {
 			break
 		}
 	}
-	a.runMu.Lock()
-	defer a.runMu.Unlock()
 	for server, c := range a.masters {
 		c.mu.Lock()
 		c.automationOwner = server == owner
-		if server != owner {
+		if server == owner {
+			c.automation = c.policy.Automation
+		} else {
 			c.automation = automationPolicy{}
 		}
 		c.mu.Unlock()
 	}
+	if owner != a.automationOwnerServer {
+		a.automationOwnerServer = owner
+		a.cancelAutomationLocked()
+	}
+}
+
+func (a *Agent) cancelAutomationLocked() {
+	a.automationMu.Lock()
+	if a.automationCancel != nil {
+		a.automationCancel()
+		a.automationCancel = nil
+	}
+	a.automationMu.Unlock()
 }
 
 func (a *Agent) startMaster(parent context.Context, c *masterConn) {
@@ -323,7 +356,7 @@ func (a *Agent) uploadLoop(ctx context.Context, c *masterConn) {
 			if time.Now().Before(backoffUntil) {
 				continue // recent failure — don't hammer a stale/dead URL every tick
 			}
-			if time.Since(last) < time.Duration(interval)*time.Second {
+			if !last.IsZero() && time.Since(last) < time.Duration(interval)*time.Second {
 				continue
 			}
 			c.upload(ctx, a.client)
@@ -385,18 +418,32 @@ func (c *masterConn) refreshPolicy(ctx context.Context, client *http.Client) {
 		return
 	}
 	var p policy
-	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&p); err != nil {
 		log.Printf("[%s] policy decode: %v", c.server, err)
 		return
 	}
 	c.mu.Lock()
+	wasAutomationEnabled := c.automation.Enabled
 	c.policy = p
 	if c.automationOwner {
 		c.automation = p.Automation
 	}
+	owner := c.automationOwner
 	c.intervalSec = computeInterval(p)
 	c.lastPolicyPull = time.Now()
 	c.mu.Unlock()
+	if owner && wasAutomationEnabled && !p.Automation.Enabled {
+		c.agent.cancelAutomation()
+	}
+}
+
+func (a *Agent) cancelAutomation() {
+	a.automationMu.Lock()
+	if a.automationCancel != nil {
+		a.automationCancel()
+		a.automationCancel = nil
+	}
+	a.automationMu.Unlock()
 }
 
 // computeInterval returns the effective upload interval (seconds) for a policy:
@@ -439,6 +486,9 @@ func (c *masterConn) upload(ctx context.Context, client *http.Client) {
 	if sizeMB <= 0 {
 		sizeMB = 1
 	}
+	if sizeMB > 5 {
+		sizeMB = 5
+	}
 
 	// Data-plane target: prefer the tunnel URL. If a tunnel is enabled but its
 	// URL isn't ready yet (master just restarted, cloudflared still negotiating),
@@ -453,6 +503,9 @@ func (c *masterConn) upload(ctx context.Context, client *http.Client) {
 		base = c.server
 	}
 	n := int64(sizeMB) * 1024 * 1024
+	if n > 5*1024*1024 {
+		n = 5 * 1024 * 1024
+	}
 	target := strings.TrimRight(base, "/") + "/upload/" + c.agentID
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, target, io.LimitReader(rand.Reader, n))

@@ -22,6 +22,8 @@ type ifaceStats struct {
 	TX int64
 }
 
+const maxAutomationTaskBytes int64 = 2048 * 1024 * 1024
+
 func readInterfaceStats(name string) (ifaceStats, error) {
 	entries, err := os.ReadDir("/sys/class/net")
 	if err != nil {
@@ -91,6 +93,7 @@ func (a *Agent) activeAutomation() automationPolicy {
 func (a *Agent) automationTick(ctx context.Context) {
 	p := a.activeAutomation()
 	if !p.Enabled {
+		a.cancelAutomation()
 		return
 	}
 	a.automationMu.Lock()
@@ -98,6 +101,7 @@ func (a *Agent) automationTick(ctx context.Context) {
 	a.automation = p
 	a.automationMu.Unlock()
 	if reset {
+		a.cancelAutomation()
 		a.resetSamplingBaseline()
 	}
 	a.automationMu.Lock()
@@ -119,6 +123,7 @@ func (a *Agent) automationTick(ctx context.Context) {
 	stats, err := readInterfaceStats(p.Interface)
 	if err != nil {
 		log.Printf("automation: interface stats: %v", err)
+		a.reportAutomationState(ctx, "网卡不可读："+err.Error())
 		return
 	}
 	samples := a.appendSample(stats)
@@ -133,8 +138,10 @@ func (a *Agent) automationTick(ctx context.Context) {
 		}
 	}
 	if old == nil {
+		a.reportAutomationState(ctx, "正在采集统计窗口基线")
 		return // no complete configured window baseline; don't use a partial ratio
 	}
+	a.reportAutomationState(ctx, "基线已就绪")
 	down := stats.RX - old.RX
 	up := stats.TX - old.TX
 	if down < 0 || up < 0 {
@@ -151,21 +158,49 @@ func (a *Agent) automationTick(ctx context.Context) {
 	rand.Shuffle(len(ordered), func(i, j int) { ordered[i], ordered[j] = ordered[j], ordered[i] })
 	a.automationMu.Lock()
 	a.automationRunning = true
+	taskCtx, taskCancel := context.WithCancel(ctx)
+	a.automationCancel = taskCancel
 	a.automationMu.Unlock()
 	go func() {
-		defer func() { a.automationMu.Lock(); a.automationRunning = false; a.automationMu.Unlock() }()
+		defer func() {
+			taskCancel()
+			a.automationMu.Lock()
+			a.automationRunning = false
+			a.automationCancel = nil
+			a.automationMu.Unlock()
+		}()
+		failed := true
 		for _, src := range ordered {
-			if ctx.Err() != nil {
+			if taskCtx.Err() != nil {
 				return
 			}
-			if err := downloadSource(ctx, a, src, p.MaxTaskMB); err != nil {
+			if err := downloadSource(taskCtx, a, src, p.MaxTaskMB); err != nil {
+				if taskCtx.Err() != nil {
+					_ = a.reportAutomation(ctx, src, 0, "cancelled", "任务已取消", 0)
+					return
+				}
 				log.Printf("automation download %s: %v", src.Name, err)
 				_ = a.reportAutomation(ctx, src, 0, "fail", err.Error(), 0)
 				continue
 			}
+			failed = false
 			break // one APK per check; max_task_mb is a per-task ceiling
 		}
+		if failed && taskCtx.Err() == nil {
+			_ = a.reportAutomation(ctx, automationSource{Name: "自动化任务"}, 0, "fail", "所有启用的下载来源均失败", 0)
+		}
 	}()
+}
+
+func (a *Agent) reportAutomationState(ctx context.Context, state string) {
+	a.automationMu.Lock()
+	if a.automationStatus == state {
+		a.automationMu.Unlock()
+		return
+	}
+	a.automationStatus = state
+	a.automationMu.Unlock()
+	_ = a.reportAutomation(ctx, automationSource{ID: "automation-status", Name: "自动化状态"}, 0, "skipped", state, 0)
 }
 
 func (a *Agent) appendSample(s ifaceStats) []trafficSample {
@@ -202,7 +237,7 @@ func (a *Agent) resetSamplingBaseline() {
 
 func downloadSource(ctx context.Context, a *Agent, src automationSource, taskMaxMB int) error {
 	u, err := url.Parse(src.URL)
-	if err != nil || u.Scheme != "https" {
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Hostname() == "" {
 		return fmt.Errorf("source must use HTTPS")
 	}
 	allowed := map[string]bool{}
@@ -218,15 +253,22 @@ func downloadSource(ctx context.Context, a *Agent, src automationSource, taskMax
 	if err := validatePublicHost(u.Hostname()); err != nil {
 		return err
 	}
+	if taskMaxMB < 1 {
+		return fmt.Errorf("task size limit must be positive")
+	}
 	maxBytes := int64(taskMaxMB) * 1024 * 1024
+	if maxBytes > maxAutomationTaskBytes {
+		maxBytes = maxAutomationTaskBytes
+	}
 	if src.MaxMB > 0 && int64(src.MaxMB)*1024*1024 < maxBytes {
 		maxBytes = int64(src.MaxMB) * 1024 * 1024
 	}
-	client := &http.Client{Timeout: 5 * time.Minute, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	transport := &http.Transport{TLSHandshakeTimeout: 15 * time.Second, ResponseHeaderTimeout: 30 * time.Second, DialContext: safePublicDial}
+	client := &http.Client{Timeout: 5 * time.Minute, Transport: transport, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return fmt.Errorf("too many redirects")
 		}
-		if req.URL.Scheme != "https" || !allowed[strings.ToLower(req.URL.Hostname())] {
+		if req.URL.Scheme != "https" || req.URL.User != nil || !allowed[strings.ToLower(req.URL.Hostname())] {
 			return fmt.Errorf("redirect host is not allowed")
 		}
 		if err := validatePublicHost(req.URL.Hostname()); err != nil {
@@ -287,6 +329,29 @@ func downloadSource(ctx context.Context, a *Agent, src automationSource, taskMax
 	return a.reportAutomation(ctx, src, n, "ok", "", time.Since(start))
 }
 
+func safePublicDial(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return nil, fmt.Errorf("cannot resolve source host")
+	}
+	var lastErr error
+	for _, ip := range ips {
+		if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || !ip.IsGlobalUnicast() {
+			return nil, fmt.Errorf("source host resolves to a non-public address")
+		}
+		conn, e := (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if e == nil {
+			return conn, nil
+		}
+		lastErr = e
+	}
+	return nil, lastErr
+}
+
 func validatePublicHost(host string) error {
 	ips, err := net.LookupIP(host)
 	if err != nil || len(ips) == 0 {
@@ -310,7 +375,11 @@ func (a *Agent) reportAutomation(ctx context.Context, src automationSource, n in
 	for _, c := range conns {
 		c.mu.Lock()
 		id, secret := c.agentID, c.secret
+		owner := c.automationOwner
 		c.mu.Unlock()
+		if !owner || id == "" || secret == "" {
+			continue
+		}
 		payload, _ := json.Marshal(map[string]any{"agent_id": id, "source_id": src.ID, "app_name": src.Name, "started_at": time.Now().Unix() - int64(d.Seconds()), "bytes": n, "status": status, "error": msg, "duration_ms": d.Milliseconds()})
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.server+"/api/agent/automation/event", bytes.NewReader(payload))
 		req.Header.Set("Authorization", "Bearer "+secret)

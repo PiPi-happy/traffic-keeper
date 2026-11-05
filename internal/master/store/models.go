@@ -54,6 +54,8 @@ type AppSource struct {
 	Official     bool   `json:"official"`
 	AllowedHosts string `json:"allowed_hosts"`
 	MaxMB        int    `json:"max_mb"`
+	Verified     bool   `json:"verified"`
+	VerifiedURL  string `json:"-"`
 }
 
 // AutomationEvent is one agent-side download task result.

@@ -133,7 +133,7 @@ func (s *Server) agentAutomationPolicy(ctx context.Context) map[string]any {
 	}
 	available := make([]store.AppSource, 0, len(sources))
 	for _, src := range sources {
-		if src.Enabled && selected[src.ID] {
+		if src.Enabled && src.Verified && selected[src.ID] {
 			available = append(available, src)
 		}
 	}
